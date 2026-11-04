@@ -63,6 +63,36 @@ using (var scope = app.Services.CreateScope())
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSerilogRequestLogging();
 
+// OpenAPI version normalization: Swagger UI regex expects 3.0.[0-3], normalize 3.0.4 to 3.0.1
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.Value != null && context.Request.Path.Value.EndsWith("/swagger.json"))
+    {
+        var originalBodyStream = context.Response.Body;
+        using var memoryStream = new MemoryStream();
+        context.Response.Body = memoryStream;
+
+        await next();
+
+        memoryStream.Position = 0;
+        using var reader = new StreamReader(memoryStream);
+        var responseBody = await reader.ReadToEndAsync();
+
+        responseBody = System.Text.RegularExpressions.Regex.Replace(
+            responseBody,
+            @"""openapi""\s*:\s*""3\.0\.\d+""",
+            @"""openapi"": ""3.0.1"""
+        );
+
+        context.Response.Body = originalBodyStream;
+        context.Response.Headers.ContentLength = System.Text.Encoding.UTF8.GetByteCount(responseBody);
+        await context.Response.WriteAsync(responseBody);
+        return;
+    }
+
+    await next();
+});
+
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
