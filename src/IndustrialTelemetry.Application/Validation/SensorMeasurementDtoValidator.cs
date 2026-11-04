@@ -15,7 +15,7 @@ public class SensorMeasurementDtoValidator : AbstractValidator<SensorMeasurement
         RuleFor(x => x.Unit)
             .NotEmpty().WithMessage("Measurement unit is required.")
             .IsEnumName(typeof(MeasurementUnit), caseSensitive: false)
-            .WithMessage("Unit must be a valid MeasurementUnit (Celsius, Bar, M3PerHour, Rpm, Ph, Percent, Kilogram).");
+            .WithMessage("Unit must be a valid MeasurementUnit (Celsius, Bar, M3PerHour, Rpm, Ph, Percent, Kilogram, Meters).");
 
         RuleFor(x => x.Quality)
             .IsEnumName(typeof(TelemetryQuality), caseSensitive: false)

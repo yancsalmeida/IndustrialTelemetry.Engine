@@ -8,5 +8,6 @@ public enum MeasurementUnit
     Rpm = 3,
     Ph = 4,
     Percent = 5,
-    Kilogram = 6
+    Kilogram = 6,
+    Meters = 7
 }

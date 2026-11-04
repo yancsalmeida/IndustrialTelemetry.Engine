@@ -23,6 +23,8 @@ public static class DbInitializer
                     AlertRule.Create("TT-101", null, 135.0, AlertSeverity.Critical, "CRITICAL: Reactor thermal runaway excursion limit"),
                     AlertRule.Create("PT-101", null, 4.0, AlertSeverity.Warning, "Reactor vapor space pressure high warning"),
                     AlertRule.Create("PT-101", null, 5.5, AlertSeverity.Critical, "CRITICAL: Reactor vessel overpressure relief limit"),
+                    AlertRule.Create("LT-101", null, 8.0, AlertSeverity.Warning, "Surge tank high liquid level warning"),
+                    AlertRule.Create("LT-101", null, 9.5, AlertSeverity.Critical, "CRITICAL: Surge tank high level emergency trip"),
                     AlertRule.Create("pH-101", 6.0, 8.5, AlertSeverity.Warning, "Polymerization batch pH stability envelope"),
                     AlertRule.Create("RPM-101", 50.0, 450.0, AlertSeverity.Warning, "Agitator mechanical speed nominal operating band")
                 };
