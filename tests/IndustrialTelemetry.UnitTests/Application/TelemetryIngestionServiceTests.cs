@@ -16,11 +16,12 @@ public class TelemetryIngestionServiceTests
     private readonly ITelemetryRepository _telemetryRepo = Substitute.For<ITelemetryRepository>();
     private readonly IAlertRepository _alertRepo = Substitute.For<IAlertRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
+    private readonly ITelemetryChannel _channel = Substitute.For<ITelemetryChannel>();
     private readonly TelemetryIngestionService _sut;
 
     public TelemetryIngestionServiceTests()
     {
-        _sut = new TelemetryIngestionService(_batchRepo, _telemetryRepo, _alertRepo, _unitOfWork);
+        _sut = new TelemetryIngestionService(_batchRepo, _telemetryRepo, _alertRepo, _unitOfWork, _channel);
     }
 
     [Fact]
@@ -87,5 +88,94 @@ public class TelemetryIngestionServiceTests
             Arg.Any<CancellationToken>());
 
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IngestChannelAsync_WhenBatchIsInProgress_ShouldWriteToChannelAndReturnQueuedDepth()
+    {
+        // Arrange
+        var batch = Batch.Create("BATCH-CHAN-1", "Recipe-1", "R-101", 15.0);
+        batch.Start(DateTime.UtcNow);
+        _batchRepo.GetByIdAsync(batch.Id, Arg.Any<CancellationToken>()).Returns(batch);
+
+        _channel.WriteBatchAsync(Arg.Any<IEnumerable<TelemetryMeasurement>>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<int>(2));
+        _channel.CurrentCount.Returns(42);
+
+        var dto = new IngestTelemetryBatchDto(
+            batch.Id,
+            new List<SensorMeasurementDto>
+            {
+                new(DateTime.UtcNow, "TT-101", 88.5, "Celsius", "Good"),
+                new(DateTime.UtcNow, "PT-101", 3.1, "Bar", "Good")
+            }
+        );
+
+        // Act
+        var result = await _sut.IngestChannelAsync(dto);
+
+        // Assert
+        result.AcceptedCount.ShouldBe(2);
+        result.CurrentQueueDepth.ShouldBe(42);
+
+        await _channel.Received(1).WriteBatchAsync(
+            Arg.Is<IEnumerable<TelemetryMeasurement>>(items => items.Count() == 2),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IngestBulkAsync_WhenBatchIsInProgress_ShouldInvokeRepositoryBulkCopyAsync()
+    {
+        // Arrange
+        var batch = Batch.Create("BATCH-BULK-1", "Recipe-1", "R-101", 20.0);
+        batch.Start(DateTime.UtcNow);
+        _batchRepo.GetByIdAsync(batch.Id, Arg.Any<CancellationToken>()).Returns(batch);
+
+        _telemetryRepo.BulkCopyAsync(Arg.Any<IEnumerable<TelemetryMeasurement>>(), Arg.Any<CancellationToken>())
+            .Returns(3);
+
+        var dto = new IngestTelemetryBatchDto(
+            batch.Id,
+            new List<SensorMeasurementDto>
+            {
+                new(DateTime.UtcNow, "TT-101", 80.0, "Celsius", "Good"),
+                new(DateTime.UtcNow, "TT-102", 82.0, "Celsius", "Good"),
+                new(DateTime.UtcNow, "PT-101", 2.5, "Bar", "Good")
+            }
+        );
+
+        // Act
+        var result = await _sut.IngestBulkAsync(dto);
+
+        // Assert
+        result.RowsImported.ShouldBe(3);
+        result.ElapsedMilliseconds.ShouldBeGreaterThanOrEqualTo(0);
+
+        await _telemetryRepo.Received(1).BulkCopyAsync(
+            Arg.Is<IEnumerable<TelemetryMeasurement>>(items => items.Count() == 3),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void GetChannelStatus_ShouldReturnChannelLiveStatus()
+    {
+        // Arrange
+        var expectedStatus = new ChannelStatusDto(
+            CurrentCount: 15,
+            Capacity: 50000,
+            TotalIngested: 100,
+            TotalDrained: 85,
+            TotalDropped: 0,
+            IsWriterCompleted: false
+        );
+        _channel.GetStatus().Returns(expectedStatus);
+
+        // Act
+        var status = _sut.GetChannelStatus();
+
+        // Assert
+        status.ShouldBe(expectedStatus);
+        status.CurrentCount.ShouldBe(15);
+        status.Capacity.ShouldBe(50000);
     }
 }

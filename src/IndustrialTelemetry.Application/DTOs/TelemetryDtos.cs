@@ -44,3 +44,23 @@ public record IngestResultDto(
     int MeasurementsIngested,
     int AlertsTriggered
 );
+
+public record ChannelIngestResultDto(
+    int AcceptedCount,
+    int CurrentQueueDepth
+);
+
+public record BulkIngestResultDto(
+    int RowsImported,
+    double ElapsedMilliseconds,
+    double RecordsPerSecond
+);
+
+public record ChannelStatusDto(
+    int CurrentCount,
+    int Capacity,
+    long TotalIngested,
+    long TotalDrained,
+    long TotalDropped,
+    bool IsWriterCompleted
+);

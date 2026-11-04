@@ -1,4 +1,6 @@
 using IndustrialTelemetry.Application.Interfaces;
+using IndustrialTelemetry.Infrastructure.BackgroundServices;
+using IndustrialTelemetry.Infrastructure.Channels;
 using IndustrialTelemetry.Infrastructure.Persistence;
 using IndustrialTelemetry.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -27,6 +29,11 @@ public static class DependencyInjection
         services.AddScoped<ITelemetryRepository, TelemetryRepository>();
         services.AddScoped<IAlertRepository, AlertRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        // High-throughput telemetry channel and background consumer service
+        services.Configure<TelemetryChannelOptions>(configuration.GetSection(TelemetryChannelOptions.SectionName));
+        services.AddSingleton<ITelemetryChannel, TelemetryChannel>();
+        services.AddHostedService<TelemetryChannelConsumerService>();
 
         return services;
     }
