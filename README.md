@@ -67,14 +67,59 @@ flowchart TD
 
 ---
 
+## 🌐 Distributed Industrial Ecosystem (End-to-End Integration)
+
+`IndustrialTelemetry.Engine` serves as the central time-series telemetry archive, safety alarm evaluator, and regulatory batch tracking engine in an interconnected industrial microservices ecosystem paired with [**`ProcessTwin.Py`**](https://github.com/yancsalmeida/ProcessTwin.Py):
+
+```mermaid
+flowchart LR
+    subgraph Twin["ProcessTwin.Py (Digital Twin Simulator)"]
+        Physics["CSTR Reactor & Tank ODEs\n(5 Hz Discrete Integration)"]
+        SIS["Safety Instrumented System\n(IEC 61511 Automated Trips)"]
+        Bridge["IndustrialTelemetryBridge\n(Async HTTP Client)"]
+        HMI["Dark-Mode SCADA HMI\n(HTML5 Canvas & SVG Dashboard)"]
+        Physics --> Bridge
+        SIS -.->|"Emergency Trip Abort"| Bridge
+        Physics --> HMI
+    end
+
+    subgraph Engine["IndustrialTelemetry.Engine (ASP.NET Core .NET 8)"]
+        Ingest["POST /api/telemetry/ingest\n(High-Throughput Validation)"]
+        State["Batch Execution State Machine\n(Scheduled → InProgress → Completed/Aborted)"]
+        Rules["Safety Alert Rules Engine\n(TT-101, PT-101, LT-101)"]
+        Analytics["Batch KPI Analytics\n(Duration, Mean & Peak Heat)"]
+        Ingest --> State
+        Ingest --> Rules
+        State --> Analytics
+    end
+
+    subgraph Storage["Enterprise Persistence"]
+        PG[("PostgreSQL 16\nTime-Series Composite Indexes\n(batch_id, timestamp_utc)")]
+        Rules --> PG
+        State --> PG
+        Ingest --> PG
+    end
+
+    Bridge == "HTTP Telemetry Stream (1 Hz)" ==> Ingest
+    Bridge == "Batch Auto-Negotiation & Aborts" ==> State
+```
+
+### End-to-End Capabilities:
+- **Autonomous Batch Negotiation:** When `ProcessTwin.Py` starts, it automatically queries the .NET API for an `InProgress` batch. If none exists, it schedules (`POST /api/batches`) and starts (`POST /api/batches/{id}/start`) a new batch session (e.g. `BATCH-TWIN-20261104-...`).
+- **Real-Time Threshold Alerting:** As the physical CSTR model fluctuates, sensor readings are evaluated against PostgreSQL-backed `AlertRule` thresholds in sub-millisecond execution times. Excursions trigger auditable `ProcessAlert` records.
+- **Automated Regulatory Emergency Interlocks (SIS / IEC 61511):** If the chemical digital twin detects a thermal runaway ($>135^\circ\text{C}$), its Safety Instrumented System automatically invokes `POST /api/batches/{id}/abort` on the .NET engine with the compliance audit reason `"Emergency SIS interlock tripped on ProcessTwin."`.
+- **Compliance Run Analytics:** Completing a batch (`POST /api/batches/{id}/complete`) calculates cycle durations, thermal peaks, and aggregated alarm metrics for quality release.
+
+---
+
 ## ⚡ Key Capabilities
 
 1. **Batch Lifecycle & State Machine:**
    - Strict transition rules (`Scheduled` $\rightarrow$ `InProgress` $\rightarrow$ `Completed` or `Aborted`).
    - Abort operations require mandatory operator rationale for regulatory auditing.
 2. **High-Throughput Telemetry Ingestion:**
-   - Ingests batch measurements across sensors (`TT-101` temperature, `PT-101` pressure, `pH-101`, `RPM-101`).
-   - Validates physical measurement units and telemetry quality indicators.
+   - Ingests batch measurements across sensors (`TT-101` temperature, `PT-101` pressure, `LT-101` surge level, `FT-101`/`FT-102` flows, `TCV-101` cooling valve, `pH-101`, `RPM-101`).
+   - Validates physical measurement units (`Celsius`, `Bar`, `Meters`, `M3PerHour`, `Percent`, `Rpm`, `Ph`) and telemetry quality indicators.
 3. **Automated Safety Alarm Evaluation:**
    - Incoming measurements are evaluated against active high/low safety thresholds in real-time.
    - Immediate generation of auditable `ProcessAlert` records with severity levels (`Info`, `Warning`, `Critical`).
@@ -181,5 +226,5 @@ Passed! - Failed: 0, Passed: 26, Skipped: 0, Total: 26, Duration: 113 ms
 **Yan Almeida**  
 - B.Sc. Chemical Engineering (Budapest University of Technology and Economics — BME)  
 - Software Engineering & Systems Development (ISPGAYA — TPSI)  
-- LinkedIn: [linkedin.com/in/yan-almeida](https://www.linkedin.com/in/yan-almeida)  
+- LinkedIn: [linkedin.com/in/yancsa](https://www.linkedin.com/in/yancsa/)  
 - GitHub: [github.com/yancsalmeida](https://github.com/yancsalmeida)
