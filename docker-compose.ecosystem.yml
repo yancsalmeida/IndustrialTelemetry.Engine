@@ -1,0 +1,91 @@
+# ==============================================================================
+# Industrial Ecosystem Orchestration
+# Services:
+#   - PostgreSQL 16 (Relational Timeseries Database)
+#   - IndustrialTelemetry.Engine (C# .NET 8 Web API + Channels Ingestion + Binary COPY)
+#   - ProcessTwin.Py (Python 3.12 Digital Twin + Native C11 FFI Bridge + SCADA HMI)
+# ==============================================================================
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: industrial-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: industrial_telemetry
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d industrial_telemetry"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - industrial-ecosystem
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: industrial-telemetry-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=industrial_telemetry;Username=postgres;Password=postgres
+      - ASPNETCORE_URLS=http://+:5100
+      - ASPNETCORE_ENVIRONMENT=Production
+      - TelemetryChannel__Capacity=50000
+      - TelemetryChannel__BatchSize=1000
+      - TelemetryChannel__FlushIntervalMs=50
+    ports:
+      - "5100:5100"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5100/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      - industrial-ecosystem
+
+  process-twin:
+    build:
+      context: ../ProcessTwin.Py
+      dockerfile: Dockerfile
+    container_name: industrial-process-twin
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - PROCESS_TWIN_DB=/app/data/processtwin.db
+      - PYTHONUNBUFFERED=1
+      - TELEMETRY_ENGINE_URL=http://api:5100
+      - TELEMETRY_INGESTION_MODE=channel
+    ports:
+      - "8000:8000"
+    volumes:
+      - twin-data:/app/data
+      - ../ReactorCore.C/libreactorcore.so:/usr/local/lib/libreactorcore.so:ro
+    networks:
+      - industrial-ecosystem
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/telemetry/current')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  pgdata:
+  twin-data:
+
+networks:
+  industrial-ecosystem:
+    name: industrial_ecosystem_net
+    driver: bridge
