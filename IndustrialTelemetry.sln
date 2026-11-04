@@ -1,0 +1,57 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{7FEE47FA-BC8C-4B91-89C4-3A94D078CDC0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IndustrialTelemetry.Domain", "src\IndustrialTelemetry.Domain\IndustrialTelemetry.Domain.csproj", "{A9856962-00D1-4E68-89EF-6E18B1FF81AA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IndustrialTelemetry.Application", "src\IndustrialTelemetry.Application\IndustrialTelemetry.Application.csproj", "{89F3B1A4-AEAE-4AF6-9EE7-9B98D120B959}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IndustrialTelemetry.Infrastructure", "src\IndustrialTelemetry.Infrastructure\IndustrialTelemetry.Infrastructure.csproj", "{BC8954F1-0C2E-493E-A15A-950A805A75F4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IndustrialTelemetry.Api", "src\IndustrialTelemetry.Api\IndustrialTelemetry.Api.csproj", "{DC50B109-60D3-42E5-99A4-4F222A795EE6}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{8DD79D1B-0FAB-49A2-8546-D961FD55A0C8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IndustrialTelemetry.UnitTests", "tests\IndustrialTelemetry.UnitTests\IndustrialTelemetry.UnitTests.csproj", "{A1BABA2D-1321-42AF-9D2F-DABBD9454E3C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A9856962-00D1-4E68-89EF-6E18B1FF81AA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A9856962-00D1-4E68-89EF-6E18B1FF81AA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A9856962-00D1-4E68-89EF-6E18B1FF81AA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A9856962-00D1-4E68-89EF-6E18B1FF81AA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{89F3B1A4-AEAE-4AF6-9EE7-9B98D120B959}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{89F3B1A4-AEAE-4AF6-9EE7-9B98D120B959}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{89F3B1A4-AEAE-4AF6-9EE7-9B98D120B959}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{89F3B1A4-AEAE-4AF6-9EE7-9B98D120B959}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BC8954F1-0C2E-493E-A15A-950A805A75F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BC8954F1-0C2E-493E-A15A-950A805A75F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BC8954F1-0C2E-493E-A15A-950A805A75F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BC8954F1-0C2E-493E-A15A-950A805A75F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DC50B109-60D3-42E5-99A4-4F222A795EE6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DC50B109-60D3-42E5-99A4-4F222A795EE6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DC50B109-60D3-42E5-99A4-4F222A795EE6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DC50B109-60D3-42E5-99A4-4F222A795EE6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1BABA2D-1321-42AF-9D2F-DABBD9454E3C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1BABA2D-1321-42AF-9D2F-DABBD9454E3C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1BABA2D-1321-42AF-9D2F-DABBD9454E3C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1BABA2D-1321-42AF-9D2F-DABBD9454E3C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A9856962-00D1-4E68-89EF-6E18B1FF81AA} = {7FEE47FA-BC8C-4B91-89C4-3A94D078CDC0}
+		{89F3B1A4-AEAE-4AF6-9EE7-9B98D120B959} = {7FEE47FA-BC8C-4B91-89C4-3A94D078CDC0}
+		{BC8954F1-0C2E-493E-A15A-950A805A75F4} = {7FEE47FA-BC8C-4B91-89C4-3A94D078CDC0}
+		{DC50B109-60D3-42E5-99A4-4F222A795EE6} = {7FEE47FA-BC8C-4B91-89C4-3A94D078CDC0}
+		{A1BABA2D-1321-42AF-9D2F-DABBD9454E3C} = {8DD79D1B-0FAB-49A2-8546-D961FD55A0C8}
+	EndGlobalSection
+EndGlobal

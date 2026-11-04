@@ -1,0 +1,28 @@
+name: .NET Core CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET SDK 8.0
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Restore dependencies
+      run: dotnet restore IndustrialTelemetry.sln
+
+    - name: Build Solution
+      run: dotnet build IndustrialTelemetry.sln --no-restore --configuration Release
+
+    - name: Run Unit Tests with xUnit
+      run: dotnet test tests/IndustrialTelemetry.UnitTests/IndustrialTelemetry.UnitTests.csproj --no-build --configuration Release --verbosity normal
