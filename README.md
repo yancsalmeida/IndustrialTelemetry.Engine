@@ -1,4 +1,4 @@
-# 🏭 IndustrialTelemetry.Engine
+# IndustrialTelemetry.Engine
 
 [![.NET Core CI](https://github.com/yancsalmeida/IndustrialTelemetry.Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/yancsalmeida/IndustrialTelemetry.Engine/actions/workflows/ci.yml)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
@@ -12,7 +12,7 @@ Designed for high-throughput sensor telemetry ingestion in batch manufacturing e
 
 ---
 
-## 🏗️ Architecture (Clean Architecture & DDD)
+## Architecture (Clean Architecture & DDD)
 
 The solution is partitioned into modular layers adhering to strict **Dependency Inversion** and **Separation of Concerns**:
 
@@ -67,7 +67,7 @@ flowchart TD
 
 ---
 
-## 🌐 Distributed Industrial Ecosystem (End-to-End Integration)
+## Distributed Industrial Ecosystem (End-to-End Integration)
 
 `IndustrialTelemetry.Engine` serves as the central time-series telemetry archive, safety alarm evaluator, and regulatory batch tracking engine in an interconnected industrial microservices ecosystem paired with [**`ProcessTwin.Py`**](https://github.com/yancsalmeida/ProcessTwin.Py):
 
@@ -112,7 +112,7 @@ flowchart LR
 
 ---
 
-## ⚡ Key Capabilities
+## Key Capabilities
 
 1. **Batch Lifecycle & State Machine:**
    - Strict transition rules (`Scheduled` $\rightarrow$ `InProgress` $\rightarrow$ `Completed` or `Aborted`).
@@ -130,7 +130,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 | Layer | Technologies |
 | :--- | :--- |
@@ -146,7 +146,7 @@ flowchart LR
 
 ---
 
-## 📋 REST API Specification
+## REST API Specification
 
 ### Batches (`/api/batches`)
 | Method | Endpoint | Description |
@@ -175,7 +175,7 @@ flowchart LR
 
 ---
 
-## 🚀 Quickstart & Execution
+## Quickstart
 
 ### 1. Run via Docker Compose (Recommended)
 
@@ -207,7 +207,7 @@ dotnet run --project src/IndustrialTelemetry.Api
 
 ---
 
-## 🧪 Automated Testing
+## Automated Testing
 
 Execute the comprehensive unit test suite:
 
@@ -221,10 +221,8 @@ Passed! - Failed: 0, Passed: 26, Skipped: 0, Total: 26, Duration: 113 ms
 
 ---
 
-## 👤 Author
+## Author
 
-**Yan Almeida**  
-- B.Sc. Chemical Engineering (Budapest University of Technology and Economics — BME)  
-- Software Engineering & Systems Development (ISPGAYA — TPSI)  
-- LinkedIn: [linkedin.com/in/yancsa](https://www.linkedin.com/in/yancsa/)  
+**Yan Almeida**
+- LinkedIn: [linkedin.com/in/yancsa](https://www.linkedin.com/in/yancsa/)
 - GitHub: [github.com/yancsalmeida](https://github.com/yancsalmeida)
