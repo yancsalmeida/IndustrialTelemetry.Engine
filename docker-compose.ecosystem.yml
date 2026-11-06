@@ -1,9 +1,10 @@
 # ==============================================================================
-# Industrial Ecosystem Orchestration
+# Complete Chemical Engineering & Software Systems Portfolio Orchestration
 # Services:
-#   - PostgreSQL 16 (Relational Timeseries Database)
-#   - IndustrialTelemetry.Engine (C# .NET 8 Web API + Channels Ingestion + Binary COPY)
-#   - ProcessTwin.Py (Python 3.12 Digital Twin + Native C11 FFI Bridge + SCADA HMI)
+#   - PostgreSQL 16 (Relational Timeseries Database - Port 5432)
+#   - IndustrialTelemetry.Engine (C# .NET 8 Web API - Port 5100)
+#   - ProcessTwin.Py (Python 3.12 Digital Twin + C11 FFI - Port 8000)
+#   - ChemFlow.NET (C# .NET 8 Process & Thermodynamics Simulator - Port 5080)
 # ==============================================================================
 services:
   postgres:
@@ -24,9 +25,9 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - industrial-ecosystem
+      - portfolio-net
 
-  api:
+  industrial-telemetry-api:
     build:
       context: .
       dockerfile: Dockerfile
@@ -51,29 +52,32 @@ services:
       retries: 5
       start_period: 15s
     networks:
-      - industrial-ecosystem
+      - portfolio-net
 
   process-twin:
     build:
       context: ../ProcessTwin.Py
       dockerfile: Dockerfile
-    container_name: industrial-process-twin
+    container_name: process-twin
     restart: unless-stopped
     depends_on:
-      api:
+      industrial-telemetry-api:
+        condition: service_healthy
+      chemflow-api:
         condition: service_healthy
     environment:
       - PROCESS_TWIN_DB=/app/data/processtwin.db
       - PYTHONUNBUFFERED=1
-      - TELEMETRY_ENGINE_URL=http://api:5100
+      - TELEMETRY_ENGINE_URL=http://industrial-telemetry-api:5100
       - TELEMETRY_INGESTION_MODE=channel
+      - CHEMFLOW_ENGINE_URL=http://chemflow-api:5080
     ports:
       - "8000:8000"
     volumes:
       - twin-data:/app/data
       - ../ReactorCore.C/libreactorcore.so:/usr/local/lib/libreactorcore.so:ro
     networks:
-      - industrial-ecosystem
+      - portfolio-net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/telemetry/current')\" || exit 1"]
       interval: 10s
@@ -81,11 +85,37 @@ services:
       retries: 3
       start_period: 10s
 
+  chemflow-api:
+    build:
+      context: ../ChemFlow.NET
+      dockerfile: Dockerfile
+    container_name: chemflow-api
+    ports:
+      - "5080:5080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5080
+      - ConnectionStrings__ChemFlowDb=Data Source=/app/data/chemflow.db
+      - REACTOR_CORE_LIB_PATH=/usr/local/lib/libreactorcore.so
+    volumes:
+      - chemflow-data:/app/data
+      - ../ReactorCore.C/libreactorcore.so:/usr/local/lib/libreactorcore.so:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5080/api/compounds || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - portfolio-net
+
 volumes:
   pgdata:
   twin-data:
+  chemflow-data:
 
 networks:
-  industrial-ecosystem:
-    name: industrial_ecosystem_net
+  portfolio-net:
+    name: chemical_software_portfolio_net
     driver: bridge
