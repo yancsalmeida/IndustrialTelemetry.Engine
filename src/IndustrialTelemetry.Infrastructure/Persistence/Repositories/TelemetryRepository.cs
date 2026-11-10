@@ -1,3 +1,4 @@
+using Dapper;
 using IndustrialTelemetry.Application.Interfaces;
 using IndustrialTelemetry.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,13 @@ namespace IndustrialTelemetry.Infrastructure.Persistence.Repositories;
 public class TelemetryRepository : ITelemetryRepository
 {
     private readonly IndustrialDbContext _context;
+
+    private sealed record SensorAggregateRow(
+        string SensorTag,
+        double Average,
+        double Min,
+        double Max,
+        long Count);
 
     public TelemetryRepository(IndustrialDbContext context)
     {
@@ -40,10 +48,53 @@ public class TelemetryRepository : ITelemetryRepository
             .ToListAsync(ct);
     }
 
+    /// <summary>
+    /// Computes per-sensor statistical aggregates (AVG, MIN, MAX, COUNT) for a batch.
+    /// Executes server-side SQL GROUP BY via Dapper on relational providers (PostgreSQL / SQLite)
+    /// to avoid materializing raw time-series rows in application memory.
+    /// </summary>
     public async Task<IReadOnlyList<SensorAggregate>> GetSensorAggregatesByBatchAsync(
         Guid batchId,
         CancellationToken ct = default)
     {
+        if (_context.Database.IsRelational())
+        {
+            var connection = _context.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open)
+            {
+                await connection.OpenAsync(ct);
+            }
+
+            const string sql = """
+                SELECT
+                    "SensorTag" AS "SensorTag",
+                    AVG("Value") AS "Average",
+                    MIN("Value") AS "Min",
+                    MAX("Value") AS "Max",
+                    COUNT(*) AS "Count"
+                FROM telemetry_measurements
+                WHERE "BatchId" = @BatchId
+                GROUP BY "SensorTag"
+                ORDER BY "SensorTag";
+                """;
+
+            var command = new CommandDefinition(
+                sql,
+                new { BatchId = batchId },
+                cancellationToken: ct);
+
+            var rows = await connection.QueryAsync<SensorAggregateRow>(command);
+
+            return rows
+                .Select(r => new SensorAggregate(
+                    SensorTag: r.SensorTag,
+                    Average: Math.Round(r.Average, 2),
+                    Min: Math.Round(r.Min, 2),
+                    Max: Math.Round(r.Max, 2),
+                    Count: (int)r.Count))
+                .ToList();
+        }
+
         var records = await _context.Telemetry
             .AsNoTracking()
             .Where(t => t.BatchId == batchId)
@@ -51,6 +102,7 @@ public class TelemetryRepository : ITelemetryRepository
 
         return records
             .GroupBy(t => t.SensorTag)
+            .OrderBy(g => g.Key)
             .Select(g => new SensorAggregate(
                 SensorTag: g.Key,
                 Average: Math.Round(g.Average(x => x.Value), 2),
@@ -63,6 +115,29 @@ public class TelemetryRepository : ITelemetryRepository
 
     public async Task<int> GetCountByBatchAsync(Guid batchId, CancellationToken ct = default)
     {
+        if (_context.Database.IsRelational())
+        {
+            var connection = _context.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open)
+            {
+                await connection.OpenAsync(ct);
+            }
+
+            const string sql = """
+                SELECT COUNT(*)
+                FROM telemetry_measurements
+                WHERE "BatchId" = @BatchId;
+                """;
+
+            var command = new CommandDefinition(
+                sql,
+                new { BatchId = batchId },
+                cancellationToken: ct);
+
+            var count = await connection.ExecuteScalarAsync<long>(command);
+            return (int)count;
+        }
+
         return await _context.Telemetry
             .AsNoTracking()
             .CountAsync(t => t.BatchId == batchId, ct);

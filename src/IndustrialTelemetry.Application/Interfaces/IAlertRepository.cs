@@ -11,4 +11,5 @@ public interface IAlertRepository
     Task<ProcessAlert?> GetAlertByIdAsync(Guid alertId, CancellationToken ct = default);
     Task<IReadOnlyList<ProcessAlert>> GetAlertsByBatchIdAsync(Guid batchId, CancellationToken ct = default);
     Task<int> GetCountByBatchAsync(Guid batchId, CancellationToken ct = default);
+    Task<IReadOnlyDictionary<Guid, int>> GetCountsByBatchesAsync(IEnumerable<Guid> batchIds, CancellationToken ct = default);
 }

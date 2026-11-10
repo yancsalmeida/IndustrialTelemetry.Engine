@@ -42,6 +42,7 @@ flowchart TD
 
     subgraph Infra["IndustrialTelemetry.Infrastructure (Data Persistence & High-Throughput Engine)"]
         EFCore["Entity Framework Core (Npgsql)"]
+        Dapper["Dapper Micro-ORM (Server-Side SQL Aggregations)"]
         BinaryCopy["PostgreSQL Binary COPY (NpgsqlBinaryImporter)"]
         Channel["Bounded In-Memory Channel (System.Threading.Channels)"]
         Worker["Hosted Background Worker (TelemetryChannelConsumerService)"]
@@ -54,7 +55,7 @@ flowchart TD
     end
 
     subgraph Tests["IndustrialTelemetry.UnitTests (xUnit)"]
-        UnitTests["41 Unit & Domain Invariant Tests (Shouldly, NSubstitute)"]
+        UnitTests["44 Unit & Relational Tests (Shouldly, NSubstitute, SQLite)"]
     end
 
     HTTP --> Endpoints
@@ -64,10 +65,12 @@ flowchart TD
     Interfaces -.->|"Implemented by"| Repos
     Interfaces -.->|"Implemented by"| Channel
     Repos --> EFCore
+    Repos --> Dapper
     Repos --> BinaryCopy
     Worker --> Channel
     Worker --> Repos
     EFCore --> PG
+    Dapper --> PG
     BinaryCopy --> PG
     UnitTests -->|"Verifies"| Domain
     UnitTests -->|"Verifies"| App
@@ -118,6 +121,10 @@ flowchart LR
 ### 3. Hosted Background Consumer Worker (`BackgroundService`)
 - Drains items from `ITelemetryChannel` into dynamic micro-batches up to 1,000 measurements or flushes upon a 50 ms latency window.
 - Executes graceful batch drainage on host termination (`CancellationToken`) ensuring zero in-flight data loss.
+
+### 4. Server-Side SQL Aggregation via Dapper (CQRS Read Path)
+- **Zero Row Materialization for KPIs:** Batch summary analytics (`GET /api/batches/{id}/summary`) execute parameterized `GROUP BY "SensorTag"` aggregations (`AVG`, `MIN`, `MAX`, `COUNT`) directly inside PostgreSQL via **Dapper** (`CommandDefinition`), leveraging the `(BatchId, SensorTag)` composite index without loading raw time-series measurements into C# memory.
+- **Batched Alert Counting (N+1 Prevention):** Listing batches (`GET /api/batches`) resolves alert counts across all returned batches in a single grouped query (`GetCountsByBatchesAsync`).
 
 ---
 
@@ -192,11 +199,11 @@ flowchart LR
 | **Runtime & Framework** | .NET 8 (C# 12), ASP.NET Core Web API |
 | **Architecture** | Clean Architecture, Domain-Driven Design (DDD) |
 | **Concurrency & Queues** | `System.Threading.Channels`, `BackgroundService` Hosted Consumer |
-| **Database & Ingestion** | PostgreSQL 16, Entity Framework Core (Npgsql), PostgreSQL Binary COPY (`NpgsqlBinaryImporter`) |
+| **Database & Persistence** | PostgreSQL 16, Entity Framework Core (Npgsql), Dapper (Server-Side SQL Aggregation), PostgreSQL Binary COPY (`NpgsqlBinaryImporter`) |
 | **Validation** | FluentValidation |
 | **Logging** | Serilog (Structured JSON Logging to Console & Diagnostics) |
 | **Documentation** | Swagger / OpenAPI UI served directly at root `/` |
-| **Testing** | xUnit, Shouldly, NSubstitute (41 automated tests) |
+| **Testing** | xUnit, Shouldly, NSubstitute, SQLite Relational In-Memory (44 automated tests) |
 | **Containerization** | Multi-stage Dockerfile, Docker Compose |
 | **CI/CD** | GitHub Actions Automated Test & Build Pipeline |
 

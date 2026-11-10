@@ -60,4 +60,22 @@ public class AlertRepository : IAlertRepository
             .AsNoTracking()
             .CountAsync(a => a.BatchId == batchId, ct);
     }
+
+    public async Task<IReadOnlyDictionary<Guid, int>> GetCountsByBatchesAsync(
+        IEnumerable<Guid> batchIds,
+        CancellationToken ct = default)
+    {
+        var ids = batchIds.Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return new Dictionary<Guid, int>();
+        }
+
+        return await _context.ProcessAlerts
+            .AsNoTracking()
+            .Where(a => ids.Contains(a.BatchId))
+            .GroupBy(a => a.BatchId)
+            .Select(g => new { BatchId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.BatchId, x => x.Count, ct);
+    }
 }

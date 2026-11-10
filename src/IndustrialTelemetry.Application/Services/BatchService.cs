@@ -103,11 +103,18 @@ public class BatchService
     public async Task<IReadOnlyList<BatchResponseDto>> ListBatchesAsync(BatchStatus? status = null, int limit = 50, CancellationToken ct = default)
     {
         var batches = await _batchRepo.ListAsync(status, limit, ct);
-        var result = new List<BatchResponseDto>(batches.Count);
+        if (batches.Count == 0)
+        {
+            return Array.Empty<BatchResponseDto>();
+        }
 
+        var batchIds = batches.Select(b => b.Id).ToArray();
+        var alertCounts = await _alertRepo.GetCountsByBatchesAsync(batchIds, ct);
+
+        var result = new List<BatchResponseDto>(batches.Count);
         foreach (var b in batches)
         {
-            var alertCount = await _alertRepo.GetCountByBatchAsync(b.Id, ct);
+            var alertCount = alertCounts != null && alertCounts.TryGetValue(b.Id, out var c) ? c : 0;
             result.Add(MapToResponse(b, alertCount));
         }
 
