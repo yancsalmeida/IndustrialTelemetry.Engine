@@ -29,7 +29,13 @@ public static class DependencyInjection
         services.AddScoped<IBatchRepository, BatchRepository>();
         services.AddScoped<ITelemetryRepository, TelemetryRepository>();
         services.AddScoped<IAlertRepository, AlertRepository>();
+        services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        // Transactional Outbox Pattern & Event Publisher
+        services.Configure<Outbox.OutboxOptions>(configuration.GetSection(Outbox.OutboxOptions.SectionName));
+        services.AddSingleton<IEventPublisher, Outbox.InMemoryEventPublisher>();
+        services.AddHostedService<OutboxProcessorBackgroundService>();
 
         // High-throughput telemetry channel and background consumer service
         services.Configure<TelemetryChannelOptions>(configuration.GetSection(TelemetryChannelOptions.SectionName));

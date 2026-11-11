@@ -1,9 +1,10 @@
 using IndustrialTelemetry.Domain.Enums;
+using IndustrialTelemetry.Domain.Events;
 using IndustrialTelemetry.Domain.Exceptions;
 
 namespace IndustrialTelemetry.Domain.Entities;
 
-public class Batch
+public class Batch : IHasDomainEvents
 {
     public Guid Id { get; private set; }
     public string Code { get; private set; } = string.Empty;
@@ -24,6 +25,13 @@ public class Batch
     // Navigation property for alerts
     private readonly List<ProcessAlert> _alerts = new();
     public IReadOnlyCollection<ProcessAlert> Alerts => _alerts.AsReadOnly();
+
+    // Domain events collection for transactional outbox
+    private readonly List<IDomainEvent> _domainEvents = new();
+    public IReadOnlyCollection<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
+
+    public void ClearDomainEvents() => _domainEvents.Clear();
+    protected void AddDomainEvent(IDomainEvent domainEvent) => _domainEvents.Add(domainEvent);
 
     // Required by EF Core
     private Batch() { }
@@ -47,7 +55,7 @@ public class Batch
         if (targetVolumeM3 <= 0.0)
             throw new DomainValidationException("Target volume must be strictly positive.");
 
-        return new Batch
+        var batch = new Batch
         {
             Id = Guid.NewGuid(),
             Code = code.Trim().ToUpperInvariant(),
@@ -58,6 +66,17 @@ public class Batch
             CreatedAtUtc = DateTime.UtcNow,
             OperatorNotes = operatorNotes?.Trim()
         };
+
+        batch.AddDomainEvent(new BatchCreatedDomainEvent(
+            batch.Id,
+            batch.Code,
+            batch.ProductRecipe,
+            batch.ReactorId,
+            batch.TargetVolumeM3,
+            batch.OperatorNotes,
+            batch.CreatedAtUtc));
+
+        return batch;
     }
 
     public void Start(DateTime timestampUtc)
@@ -72,6 +91,13 @@ public class Batch
 
         Status = BatchStatus.InProgress;
         StartTimeUtc = timestampUtc;
+
+        AddDomainEvent(new BatchStartedDomainEvent(
+            Id,
+            Code,
+            ReactorId,
+            timestampUtc,
+            DateTime.UtcNow));
     }
 
     public void Complete(DateTime timestampUtc)
@@ -91,6 +117,13 @@ public class Batch
 
         Status = BatchStatus.Completed;
         EndTimeUtc = timestampUtc;
+
+        AddDomainEvent(new BatchCompletedDomainEvent(
+            Id,
+            Code,
+            ReactorId,
+            timestampUtc,
+            DateTime.UtcNow));
     }
 
     public void Abort(string reason, DateTime timestampUtc)
@@ -119,6 +152,14 @@ public class Batch
         Status = BatchStatus.Aborted;
         EndTimeUtc = timestampUtc;
         AbortReason = reason.Trim();
+
+        AddDomainEvent(new BatchAbortedDomainEvent(
+            Id,
+            Code,
+            ReactorId,
+            AbortReason,
+            timestampUtc,
+            DateTime.UtcNow));
     }
 
     public void UpdateNotes(string notes)

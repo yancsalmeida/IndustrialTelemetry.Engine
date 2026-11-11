@@ -1,4 +1,5 @@
 using IndustrialTelemetry.Domain.Entities;
+using IndustrialTelemetry.Domain.Events;
 using Microsoft.EntityFrameworkCore;
 
 namespace IndustrialTelemetry.Infrastructure.Persistence;
@@ -14,6 +15,7 @@ public class IndustrialDbContext : DbContext
     public DbSet<TelemetryMeasurement> Telemetry => Set<TelemetryMeasurement>();
     public DbSet<AlertRule> AlertRules => Set<AlertRule>();
     public DbSet<ProcessAlert> ProcessAlerts => Set<ProcessAlert>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -131,5 +133,79 @@ public class IndustrialDbContext : DbContext
             a.HasIndex(x => new { x.BatchId, x.TimestampUtc });
             a.HasIndex(x => x.Acknowledged);
         });
+
+        // 5. Outbox Message Entity Configuration
+        modelBuilder.Entity<OutboxMessage>(o =>
+        {
+            o.ToTable("outbox_messages");
+            o.HasKey(x => x.Id);
+
+            o.Property(x => x.EventType)
+                .HasMaxLength(128)
+                .IsRequired();
+
+            o.Property(x => x.AggregateType)
+                .HasMaxLength(64)
+                .IsRequired();
+
+            o.Property(x => x.AggregateId)
+                .HasMaxLength(64)
+                .IsRequired();
+
+            o.Property(x => x.Payload)
+                .HasColumnType("text")
+                .IsRequired();
+
+            o.Property(x => x.CorrelationId)
+                .HasMaxLength(128);
+
+            o.Property(x => x.LastError)
+                .HasMaxLength(2048);
+
+            o.HasIndex(x => new { x.ProcessedOnUtc, x.OccurredOnUtc });
+            o.HasIndex(x => new { x.AggregateType, x.AggregateId });
+        });
+    }
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        ConvertDomainEventsToOutboxMessages();
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override int SaveChanges()
+    {
+        ConvertDomainEventsToOutboxMessages();
+        return base.SaveChanges();
+    }
+
+    private void ConvertDomainEventsToOutboxMessages()
+    {
+        var entitiesWithEvents = ChangeTracker.Entries<IHasDomainEvents>()
+            .Where(e => e.Entity.DomainEvents.Count > 0)
+            .Select(e => e.Entity)
+            .ToList();
+
+        if (entitiesWithEvents.Count == 0)
+            return;
+
+        foreach (var entity in entitiesWithEvents)
+        {
+            string aggregateType = entity.GetType().Name;
+            string aggregateId = entity switch
+            {
+                Batch b => b.Id.ToString(),
+                ProcessAlert a => a.Id.ToString(),
+                _ => Guid.NewGuid().ToString()
+            };
+
+            foreach (var domainEvent in entity.DomainEvents)
+            {
+                var outboxMessage = OutboxMessage.FromDomainEvent(domainEvent, aggregateType, aggregateId);
+                OutboxMessages.Add(outboxMessage);
+            }
+
+            entity.ClearDomainEvents();
+        }
     }
 }

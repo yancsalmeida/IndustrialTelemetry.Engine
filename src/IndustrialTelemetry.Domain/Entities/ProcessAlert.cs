@@ -1,9 +1,10 @@
 using IndustrialTelemetry.Domain.Enums;
+using IndustrialTelemetry.Domain.Events;
 using IndustrialTelemetry.Domain.Exceptions;
 
 namespace IndustrialTelemetry.Domain.Entities;
 
-public class ProcessAlert
+public class ProcessAlert : IHasDomainEvents
 {
     public Guid Id { get; private set; }
     public Guid BatchId { get; private set; }
@@ -16,6 +17,13 @@ public class ProcessAlert
     public bool Acknowledged { get; private set; }
     public DateTime? AcknowledgedAtUtc { get; private set; }
     public string? AcknowledgedBy { get; private set; }
+
+    // Domain events collection for transactional outbox
+    private readonly List<IDomainEvent> _domainEvents = new();
+    public IReadOnlyCollection<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
+
+    public void ClearDomainEvents() => _domainEvents.Clear();
+    protected void AddDomainEvent(IDomainEvent domainEvent) => _domainEvents.Add(domainEvent);
 
     // Required by EF Core
     private ProcessAlert() { }
@@ -38,7 +46,7 @@ public class ProcessAlert
         if (string.IsNullOrWhiteSpace(message))
             throw new DomainValidationException("Alert message cannot be blank.");
 
-        return new ProcessAlert
+        var alert = new ProcessAlert
         {
             Id = Guid.NewGuid(),
             BatchId = batchId,
@@ -50,6 +58,19 @@ public class ProcessAlert
             Message = message.Trim(),
             Acknowledged = false
         };
+
+        alert.AddDomainEvent(new ProcessAlertTriggeredDomainEvent(
+            alert.Id,
+            alert.BatchId,
+            alert.SensorTag,
+            alert.TimestampUtc,
+            alert.TriggeredValue,
+            alert.ThresholdValue,
+            alert.Severity,
+            alert.Message,
+            DateTime.UtcNow));
+
+        return alert;
     }
 
     public void Acknowledge(string operatorId, DateTime timestampUtc)
@@ -63,5 +84,12 @@ public class ProcessAlert
         Acknowledged = true;
         AcknowledgedAtUtc = timestampUtc.Kind == DateTimeKind.Utc ? timestampUtc : timestampUtc.ToUniversalTime();
         AcknowledgedBy = operatorId.Trim();
+
+        AddDomainEvent(new ProcessAlertAcknowledgedDomainEvent(
+            Id,
+            BatchId,
+            AcknowledgedBy,
+            AcknowledgedAtUtc.Value,
+            DateTime.UtcNow));
     }
 }
