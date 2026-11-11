@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using IndustrialTelemetry.Application.DTOs;
 using IndustrialTelemetry.Application.Interfaces;
+using IndustrialTelemetry.Application.Parsing;
 using IndustrialTelemetry.Domain.Entities;
 using IndustrialTelemetry.Domain.Enums;
 using IndustrialTelemetry.Domain.Exceptions;
@@ -110,6 +111,99 @@ public class TelemetryIngestionService
         var rps = stopwatch.Elapsed.TotalSeconds > 0 ? rowsImported / stopwatch.Elapsed.TotalSeconds : rowsImported * 1000.0;
 
         return new BulkIngestResultDto(rowsImported, Math.Round(elapsedMs, 2), Math.Round(rps, 2));
+    }
+
+    /// <summary>
+    /// Parses and ingests a raw compact wire-protocol payload (delimiter-separated lines)
+    /// without JSON deserialization overhead, routing measurements directly to the chosen target engine.
+    /// </summary>
+    public async Task<WireIngestResultDto> IngestWirePayloadAsync(
+        Guid batchId,
+        string rawText,
+        WireIngestMode mode = WireIngestMode.Channel,
+        CancellationToken ct = default)
+    {
+        await ValidateBatchForIngestionAsync(batchId, ct);
+
+        var stopwatch = Stopwatch.StartNew();
+        var measurements = new List<TelemetryMeasurement>();
+
+        WireProtocolParser.ParseLines(
+            rawText.AsSpan(),
+            batchId,
+            measurements,
+            out int totalLines,
+            out int skippedLines);
+
+        if (measurements.Count == 0)
+        {
+            stopwatch.Stop();
+            return new WireIngestResultDto(
+                totalLines,
+                0,
+                skippedLines,
+                Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2),
+                0.0,
+                mode.ToString(),
+                0,
+                _channel.CurrentCount
+            );
+        }
+
+        int alertsTriggered = 0;
+        int channelDepth = _channel.CurrentCount;
+
+        switch (mode)
+        {
+            case WireIngestMode.Transactional:
+                var activeRules = await _alertRepo.GetActiveRulesAsync(ct);
+                var triggeredAlerts = new List<ProcessAlert>();
+                foreach (var m in measurements)
+                {
+                    foreach (var rule in activeRules)
+                    {
+                        var alert = rule.Evaluate(m);
+                        if (alert != null)
+                            triggeredAlerts.Add(alert);
+                    }
+                }
+
+                await _telemetryRepo.IngestBatchAsync(measurements, ct);
+                if (triggeredAlerts.Count > 0)
+                {
+                    await _alertRepo.AddAlertsAsync(triggeredAlerts, ct);
+                }
+                await _unitOfWork.SaveChangesAsync(ct);
+                alertsTriggered = triggeredAlerts.Count;
+                break;
+
+            case WireIngestMode.Bulk:
+                await _telemetryRepo.BulkCopyAsync(measurements, ct);
+                break;
+
+            case WireIngestMode.Channel:
+            default:
+                await _channel.WriteBatchAsync(measurements, ct);
+                channelDepth = _channel.CurrentCount;
+                break;
+        }
+
+        stopwatch.Stop();
+        var elapsedMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2);
+        var rps = stopwatch.Elapsed.TotalSeconds > 0
+            ? Math.Round(measurements.Count / stopwatch.Elapsed.TotalSeconds, 2)
+            : measurements.Count * 1000.0;
+
+        return new WireIngestResultDto(
+            totalLines,
+            measurements.Count,
+            skippedLines,
+            elapsedMs,
+            rps,
+            mode.ToString(),
+            alertsTriggered,
+            channelDepth
+        );
     }
 
     /// <summary>

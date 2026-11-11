@@ -3,6 +3,7 @@ using IndustrialTelemetry.Infrastructure.BackgroundServices;
 using IndustrialTelemetry.Infrastructure.Channels;
 using IndustrialTelemetry.Infrastructure.Persistence;
 using IndustrialTelemetry.Infrastructure.Persistence.Repositories;
+using IndustrialTelemetry.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,6 +35,10 @@ public static class DependencyInjection
         services.Configure<TelemetryChannelOptions>(configuration.GetSection(TelemetryChannelOptions.SectionName));
         services.AddSingleton<ITelemetryChannel, TelemetryChannel>();
         services.AddHostedService<TelemetryChannelConsumerService>();
+
+        // In-memory idempotency store
+        services.AddMemoryCache();
+        services.AddSingleton<IIdempotencyStore, MemoryIdempotencyStore>();
 
         return services;
     }

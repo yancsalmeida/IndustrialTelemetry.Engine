@@ -178,4 +178,103 @@ public class TelemetryIngestionServiceTests
         status.CurrentCount.ShouldBe(15);
         status.Capacity.ShouldBe(50000);
     }
+
+    [Fact]
+    public async Task IngestWirePayloadAsync_WhenModeIsChannel_WritesToChannelAndReturnsResult()
+    {
+        // Arrange
+        var batch = Batch.Create("BATCH-WIRE-CHAN", "Recipe-1", "R-101", 10.0);
+        batch.Start(DateTime.UtcNow);
+        _batchRepo.GetByIdAsync(batch.Id, Arg.Any<CancellationToken>()).Returns(batch);
+
+        _channel.WriteBatchAsync(Arg.Any<IEnumerable<TelemetryMeasurement>>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<int>(2));
+        _channel.CurrentCount.Returns(7);
+
+        const string wireText =
+            "1730678400000|TT-101|85.0|Celsius|Good\n" +
+            "1730678400100|PT-101|3.5|Bar|Good";
+
+        // Act
+        var result = await _sut.IngestWirePayloadAsync(batch.Id, wireText, WireIngestMode.Channel);
+
+        // Assert
+        result.TotalLinesParsed.ShouldBe(2);
+        result.ValidMeasurements.ShouldBe(2);
+        result.SkippedLines.ShouldBe(0);
+        result.IngestMode.ShouldBe("Channel");
+        result.ChannelQueueDepth.ShouldBe(7);
+
+        await _channel.Received(1).WriteBatchAsync(
+            Arg.Is<IEnumerable<TelemetryMeasurement>>(m => m.Count() == 2),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IngestWirePayloadAsync_WhenModeIsTransactional_EvaluatesRulesAndPersists()
+    {
+        // Arrange
+        var batch = Batch.Create("BATCH-WIRE-TX", "Recipe-1", "R-101", 10.0);
+        batch.Start(DateTime.UtcNow);
+        _batchRepo.GetByIdAsync(batch.Id, Arg.Any<CancellationToken>()).Returns(batch);
+
+        var rule = AlertRule.Create(
+            "TT-101",
+            null,
+            90.0,
+            AlertSeverity.Critical,
+            "Temperature above limit"
+        );
+        _alertRepo.GetActiveRulesAsync(Arg.Any<CancellationToken>()).Returns(new List<AlertRule> { rule });
+
+        const string wireText =
+            "1730678400000|TT-101|95.0|Celsius|Good\n" + // Triggers rule (> 90.0)
+            "1730678400100|TT-101|80.0|Celsius|Good";   // Does not trigger rule
+
+        // Act
+        var result = await _sut.IngestWirePayloadAsync(batch.Id, wireText, WireIngestMode.Transactional);
+
+        // Assert
+        result.ValidMeasurements.ShouldBe(2);
+        result.AlertsTriggered.ShouldBe(1);
+        result.IngestMode.ShouldBe("Transactional");
+
+        await _telemetryRepo.Received(1).IngestBatchAsync(
+            Arg.Is<IEnumerable<TelemetryMeasurement>>(m => m.Count() == 2),
+            Arg.Any<CancellationToken>());
+
+        await _alertRepo.Received(1).AddAlertsAsync(
+            Arg.Is<IEnumerable<ProcessAlert>>(a => a.Count() == 1),
+            Arg.Any<CancellationToken>());
+
+        await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IngestWirePayloadAsync_WhenModeIsBulk_DelegatesToBulkCopy()
+    {
+        // Arrange
+        var batch = Batch.Create("BATCH-WIRE-BULK", "Recipe-1", "R-101", 10.0);
+        batch.Start(DateTime.UtcNow);
+        _batchRepo.GetByIdAsync(batch.Id, Arg.Any<CancellationToken>()).Returns(batch);
+
+        _telemetryRepo.BulkCopyAsync(Arg.Any<IEnumerable<TelemetryMeasurement>>(), Arg.Any<CancellationToken>())
+            .Returns(3);
+
+        const string wireText =
+            "1730678400000|TT-101|80.0|Celsius|Good\n" +
+            "1730678400100|TT-102|82.0|Celsius|Good\n" +
+            "1730678400200|PT-101|2.5|Bar|Good";
+
+        // Act
+        var result = await _sut.IngestWirePayloadAsync(batch.Id, wireText, WireIngestMode.Bulk);
+
+        // Assert
+        result.ValidMeasurements.ShouldBe(3);
+        result.IngestMode.ShouldBe("Bulk");
+
+        await _telemetryRepo.Received(1).BulkCopyAsync(
+            Arg.Is<IEnumerable<TelemetryMeasurement>>(m => m.Count() == 3),
+            Arg.Any<CancellationToken>());
+    }
 }

@@ -1,8 +1,11 @@
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
+using IndustrialTelemetry.Api.Filters;
 using IndustrialTelemetry.Api.Middleware;
 using IndustrialTelemetry.Application;
 using IndustrialTelemetry.Infrastructure;
 using IndustrialTelemetry.Infrastructure.Persistence;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi.Models;
 using Serilog;
 
@@ -29,7 +32,21 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 
-// 4. Add HealthChecks
+// 4. Rate Limiting & Idempotency Filter
+builder.Services.AddScoped<IdempotencyFilter>();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter("telemetry-rate-limit", opt =>
+    {
+        opt.PermitLimit = 1000;
+        opt.Window = TimeSpan.FromSeconds(10);
+        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        opt.QueueLimit = 100;
+    });
+});
+
+// 5. Add HealthChecks
 builder.Services.AddHealthChecks();
 
 // 5. Add OpenAPI / Swagger
@@ -100,6 +117,7 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = string.Empty; // Serve Swagger UI directly at root '/'
 });
 
+app.UseRateLimiter();
 app.MapHealthChecks("/health");
 app.MapControllers();
 

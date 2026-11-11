@@ -64,3 +64,22 @@ public record ChannelStatusDto(
     long TotalDropped,
     bool IsWriterCompleted
 );
+
+public enum WireIngestMode
+{
+    Channel = 0,
+    Transactional = 1,
+    Bulk = 2
+}
+
+public record WireIngestResultDto(
+    int TotalLinesParsed,
+    int ValidMeasurements,
+    int SkippedLines,
+    double ElapsedMilliseconds,
+    double RecordsPerSecond,
+    string IngestMode,
+    int AlertsTriggered = 0,
+    int ChannelQueueDepth = 0
+);
+

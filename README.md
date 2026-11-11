@@ -55,7 +55,7 @@ flowchart TD
     end
 
     subgraph Tests["IndustrialTelemetry.UnitTests (xUnit)"]
-        UnitTests["44 Unit & Relational Tests (Shouldly, NSubstitute, SQLite)"]
+        UnitTests["64 Unit & Relational Tests (Shouldly, NSubstitute, SQLite)"]
     end
 
     HTTP --> Endpoints
@@ -125,6 +125,14 @@ flowchart LR
 ### 4. Server-Side SQL Aggregation via Dapper (CQRS Read Path)
 - **Zero Row Materialization for KPIs:** Batch summary analytics (`GET /api/batches/{id}/summary`) execute parameterized `GROUP BY "SensorTag"` aggregations (`AVG`, `MIN`, `MAX`, `COUNT`) directly inside PostgreSQL via **Dapper** (`CommandDefinition`), leveraging the `(BatchId, SensorTag)` composite index without loading raw time-series measurements into C# memory.
 - **Batched Alert Counting (N+1 Prevention):** Listing batches (`GET /api/batches`) resolves alert counts across all returned batches in a single grouped query (`GetCountsByBatchesAsync`).
+
+### 5. Zero-Allocation Wire-Protocol Ingestion (`ReadOnlySpan<char>`)
+- **Compact SCADA/PLC Field Stream:** The endpoint `POST /api/telemetry/batch/{id}/ingest/wire?mode=Channel` accepts compact text frames (`TIMESTAMP|SENSOR_TAG|VALUE|UNIT|QUALITY`), parsing them line-by-line via `WireSpanLineEnumerator` and `WireProtocolParser` without allocating intermediate `string[]` arrays on the GC heap.
+- **Direct Dispatch:** Parsed telemetry streams directly into the specified engine mode (`Channel`, `Bulk` Binary COPY, or `Transactional` with alert rule checking).
+
+### 6. Edge Resiliency & Idempotency (`Idempotency-Key` & Rate Limiting)
+- **Safe Network Retries:** State-changing batch and telemetry endpoints support the `Idempotency-Key` header with TTL caching via `IIdempotencyStore`, returning cached results and `X-Cache-Lookup: HIT` upon duplicated network transmissions.
+- **Partitioned Rate Limiting:** Built-in fixed-window rate limiter protects the ingestion pipeline from field transmitter bursts.
 
 ---
 
@@ -203,7 +211,7 @@ flowchart LR
 | **Validation** | FluentValidation |
 | **Logging** | Serilog (Structured JSON Logging to Console & Diagnostics) |
 | **Documentation** | Swagger / OpenAPI UI served directly at root `/` |
-| **Testing** | xUnit, Shouldly, NSubstitute, SQLite Relational In-Memory (44 automated tests) |
+| **Testing** | xUnit, Shouldly, NSubstitute, SQLite Relational In-Memory (64 automated tests) |
 | **Containerization** | Multi-stage Dockerfile, Docker Compose |
 | **CI/CD** | GitHub Actions Automated Test & Build Pipeline |
 
@@ -228,6 +236,7 @@ flowchart LR
 | `POST` | `/api/telemetry/ingest` | Transactional sensor ingestion + automated threshold alert evaluation |
 | `POST` | `/api/telemetry/ingest/channel` | Asynchronous non-blocking streaming ingestion via bounded in-memory channel (202 Accepted) |
 | `POST` | `/api/telemetry/ingest/bulk` | Direct high-throughput bulk copy ingestion bypassing EF Core via PostgreSQL Binary COPY |
+| `POST` | `/api/telemetry/batch/{batchId}/ingest/wire` | High-throughput zero-allocation SCADA/PLC wire-protocol ingestion (`text/plain` or octet-stream) |
 | `GET` | `/api/telemetry/channel/status` | Live queue metrics for the in-memory telemetry ingestion channel |
 | `GET` | `/api/telemetry/batch/{batchId}` | Query chronological time-series measurements (`?sensorTag=TT-101`) |
 

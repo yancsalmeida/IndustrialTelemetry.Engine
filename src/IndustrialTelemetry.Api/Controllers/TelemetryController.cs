@@ -1,13 +1,17 @@
+using System.Text;
 using FluentValidation;
+using IndustrialTelemetry.Api.Filters;
 using IndustrialTelemetry.Application.DTOs;
 using IndustrialTelemetry.Application.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace IndustrialTelemetry.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Produces("application/json")]
+[EnableRateLimiting("telemetry-rate-limit")]
 public class TelemetryController : ControllerBase
 {
     private readonly TelemetryIngestionService _ingestionService;
@@ -25,6 +29,7 @@ public class TelemetryController : ControllerBase
     /// Transactional ingestion endpoint for time-series sensor measurements with automated threshold alert evaluation.
     /// </summary>
     [HttpPost("ingest")]
+    [Idempotent]
     [ProducesResponseType(typeof(IngestResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -43,6 +48,7 @@ public class TelemetryController : ControllerBase
     /// Fast-paths incoming telemetry into the channel buffer and returns immediately (202 Accepted).
     /// </summary>
     [HttpPost("ingest/channel")]
+    [Idempotent]
     [ProducesResponseType(typeof(ChannelIngestResultDto), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -61,6 +67,7 @@ public class TelemetryController : ControllerBase
     /// via PostgreSQL Binary COPY.
     /// </summary>
     [HttpPost("ingest/bulk")]
+    [Idempotent]
     [ProducesResponseType(typeof(BulkIngestResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -71,6 +78,45 @@ public class TelemetryController : ControllerBase
             return validationError;
 
         var result = await _ingestionService.IngestBulkAsync(dto, ct);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// High-throughput compact wire-protocol telemetry ingestion endpoint for SCADA/PLC edge gateways.
+    /// Parses delimiter-separated records (TIMESTAMP|SENSOR_TAG|VALUE|UNIT|QUALITY) with zero intermediate
+    /// array allocations and routes measurements directly to the chosen engine mode (Channel, Transactional, or Bulk).
+    /// </summary>
+    [HttpPost("batch/{batchId:guid}/ingest/wire")]
+    [Idempotent]
+    [Consumes("text/plain", "application/octet-stream", "application/x-telemetry-wire")]
+    [ProducesResponseType(typeof(WireIngestResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(WireIngestResultDto), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> IngestWireProtocol(
+        Guid batchId,
+        [FromQuery] WireIngestMode mode = WireIngestMode.Channel,
+        CancellationToken ct = default)
+    {
+        using var reader = new StreamReader(Request.Body, Encoding.UTF8);
+        var rawText = await reader.ReadToEndAsync(ct);
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Empty Wire Payload",
+                Detail = "Wire protocol payload cannot be empty.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
+        var result = await _ingestionService.IngestWirePayloadAsync(batchId, rawText, mode, ct);
+
+        if (mode == WireIngestMode.Channel)
+        {
+            return Accepted(result);
+        }
+
         return Ok(result);
     }
 

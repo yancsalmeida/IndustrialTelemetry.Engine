@@ -1,4 +1,5 @@
 using FluentValidation;
+using IndustrialTelemetry.Api.Filters;
 using IndustrialTelemetry.Application.DTOs;
 using IndustrialTelemetry.Application.Services;
 using IndustrialTelemetry.Domain.Enums;
@@ -24,6 +25,7 @@ public class BatchesController : ControllerBase
     /// Creates and schedules a new industrial manufacturing batch.
     /// </summary>
     [HttpPost]
+    [Idempotent]
     [ProducesResponseType(typeof(BatchResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateBatch([FromBody] CreateBatchDto dto, CancellationToken ct)
@@ -70,6 +72,7 @@ public class BatchesController : ControllerBase
     /// Transitions a scheduled batch into the InProgress execution phase.
     /// </summary>
     [HttpPost("{id:guid}/start")]
+    [Idempotent]
     [ProducesResponseType(typeof(BatchResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -83,6 +86,7 @@ public class BatchesController : ControllerBase
     /// Formally completes an InProgress batch run and seals execution timestamps.
     /// </summary>
     [HttpPost("{id:guid}/complete")]
+    [Idempotent]
     [ProducesResponseType(typeof(BatchResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -96,6 +100,7 @@ public class BatchesController : ControllerBase
     /// Emergency aborts an active batch with a mandatory regulatory compliance explanation.
     /// </summary>
     [HttpPost("{id:guid}/abort")]
+    [Idempotent]
     [ProducesResponseType(typeof(BatchResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]

@@ -142,4 +142,75 @@ public class TelemetryControllerTests
         var badRequest = result.ShouldBeOfType<BadRequestObjectResult>();
         badRequest.StatusCode.ShouldBe(StatusCodes.Status400BadRequest);
     }
+
+    [Fact]
+    public async Task IngestWireProtocol_WithChannelMode_ShouldReturn202Accepted()
+    {
+        // Arrange
+        var batch = Batch.Create("BATCH-WIRE-API", "Recipe-X", "R-101", 10.0);
+        batch.Start(DateTime.UtcNow);
+        _batchRepo.GetByIdAsync(batch.Id, Arg.Any<CancellationToken>()).Returns(batch);
+
+        _channel.WriteBatchAsync(Arg.Any<IEnumerable<TelemetryMeasurement>>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<int>(2));
+        _channel.CurrentCount.Returns(4);
+
+        const string wirePayload = "1730678400000|TT-101|85.0|Celsius|Good\n1730678400100|PT-101|3.5|Bar|Good";
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(wirePayload));
+        _controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        // Act
+        var result = await _controller.IngestWireProtocol(batch.Id, WireIngestMode.Channel, CancellationToken.None);
+
+        // Assert
+        var acceptedResult = result.ShouldBeOfType<AcceptedResult>();
+        acceptedResult.StatusCode.ShouldBe(StatusCodes.Status202Accepted);
+        var body = acceptedResult.Value.ShouldBeOfType<WireIngestResultDto>();
+        body.ValidMeasurements.ShouldBe(2);
+        body.ChannelQueueDepth.ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task IngestWireProtocol_WithBulkMode_ShouldReturn200Ok()
+    {
+        // Arrange
+        var batch = Batch.Create("BATCH-WIRE-API-BULK", "Recipe-X", "R-101", 10.0);
+        batch.Start(DateTime.UtcNow);
+        _batchRepo.GetByIdAsync(batch.Id, Arg.Any<CancellationToken>()).Returns(batch);
+
+        _telemetryRepo.BulkCopyAsync(Arg.Any<IEnumerable<TelemetryMeasurement>>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        const string wirePayload = "1730678400000|TT-101|85.0|Celsius|Good\n1730678400100|PT-101|3.5|Bar|Good";
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(wirePayload));
+        _controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        // Act
+        var result = await _controller.IngestWireProtocol(batch.Id, WireIngestMode.Bulk, CancellationToken.None);
+
+        // Assert
+        var okResult = result.ShouldBeOfType<OkObjectResult>();
+        okResult.StatusCode.ShouldBe(StatusCodes.Status200OK);
+        var body = okResult.Value.ShouldBeOfType<WireIngestResultDto>();
+        body.ValidMeasurements.ShouldBe(2);
+        body.IngestMode.ShouldBe("Bulk");
+    }
+
+    [Fact]
+    public async Task IngestWireProtocol_WithEmptyPayload_ShouldReturn400BadRequest()
+    {
+        // Arrange
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("   "));
+        _controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        // Act
+        var result = await _controller.IngestWireProtocol(Guid.NewGuid(), WireIngestMode.Channel, CancellationToken.None);
+
+        // Assert
+        var badRequest = result.ShouldBeOfType<BadRequestObjectResult>();
+        badRequest.StatusCode.ShouldBe(StatusCodes.Status400BadRequest);
+    }
 }
