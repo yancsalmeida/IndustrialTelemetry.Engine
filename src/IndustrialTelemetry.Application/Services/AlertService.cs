@@ -29,7 +29,10 @@ public class AlertService
             dto.MinThreshold,
             dto.MaxThreshold,
             severity,
-            dto.Description
+            dto.Description,
+            dto.MaxRateOfChangePerMinute,
+            dto.MinRateOfChangePerMinute,
+            dto.WindowSeconds
         );
 
         await _alertRepo.AddRuleAsync(rule, ct);
@@ -42,7 +45,10 @@ public class AlertService
             rule.MaxThreshold,
             rule.Severity.ToString(),
             rule.Description,
-            rule.IsActive
+            rule.IsActive,
+            rule.MaxRateOfChangePerMinute,
+            rule.MinRateOfChangePerMinute,
+            rule.WindowSeconds
         );
     }
 
@@ -56,7 +62,10 @@ public class AlertService
             r.MaxThreshold,
             r.Severity.ToString(),
             r.Description,
-            r.IsActive
+            r.IsActive,
+            r.MaxRateOfChangePerMinute,
+            r.MinRateOfChangePerMinute,
+            r.WindowSeconds
         )).ToList();
     }
 

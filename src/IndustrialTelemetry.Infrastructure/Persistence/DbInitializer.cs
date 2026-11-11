@@ -26,7 +26,9 @@ public static class DbInitializer
                     AlertRule.Create("LT-101", null, 8.0, AlertSeverity.Warning, "Surge tank high liquid level warning"),
                     AlertRule.Create("LT-101", null, 9.5, AlertSeverity.Critical, "CRITICAL: Surge tank high level emergency trip"),
                     AlertRule.Create("pH-101", 6.0, 8.5, AlertSeverity.Warning, "Polymerization batch pH stability envelope"),
-                    AlertRule.Create("RPM-101", 50.0, 450.0, AlertSeverity.Warning, "Agitator mechanical speed nominal operating band")
+                    AlertRule.Create("RPM-101", 50.0, 450.0, AlertSeverity.Warning, "Agitator mechanical speed nominal operating band"),
+                    AlertRule.CreateRateOfChange("TT-101", maxRateOfChangePerMinute: 5.0, minRateOfChangePerMinute: null, AlertSeverity.Critical, "CRITICAL: Reactor thermal runaway rapid rate-of-temperature-rise excursion (dT/dt > 5.0 °C/min)", windowSeconds: 30),
+                    AlertRule.CreateRateOfChange("PT-101", maxRateOfChangePerMinute: null, minRateOfChangePerMinute: -1.0, AlertSeverity.Warning, "Rapid reactor depressurization leak detection (dP/dt < -1.0 bar/min)", windowSeconds: 20)
                 };
 
                 await context.AlertRules.AddRangeAsync(rules, ct);

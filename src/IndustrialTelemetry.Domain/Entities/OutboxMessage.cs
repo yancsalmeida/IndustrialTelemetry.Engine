@@ -52,6 +52,11 @@ public class OutboxMessage
         };
     }
 
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+    };
+
     public static OutboxMessage FromDomainEvent<TEvent>(
         TEvent domainEvent,
         string aggregateType,
@@ -60,7 +65,7 @@ public class OutboxMessage
     {
         ArgumentNullException.ThrowIfNull(domainEvent);
         string eventType = domainEvent.GetType().Name;
-        string payload = JsonSerializer.Serialize(domainEvent, domainEvent.GetType());
+        string payload = JsonSerializer.Serialize(domainEvent, domainEvent.GetType(), SerializerOptions);
 
         return Create(eventType, aggregateType, aggregateId, payload, domainEvent.OccurredOnUtc, correlationId);
     }

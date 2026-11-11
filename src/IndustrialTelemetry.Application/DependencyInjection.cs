@@ -1,4 +1,5 @@
 using FluentValidation;
+using IndustrialTelemetry.Application.Interfaces;
 using IndustrialTelemetry.Application.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,6 +11,7 @@ public static class DependencyInjection
     {
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
 
+        services.AddSingleton<ISlidingWindowAnomalyDetector, SlidingWindowAnomalyDetector>();
         services.AddScoped<BatchService>();
         services.AddScoped<TelemetryIngestionService>();
         services.AddScoped<AlertService>();

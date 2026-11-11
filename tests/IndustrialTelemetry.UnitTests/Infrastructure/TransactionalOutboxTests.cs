@@ -1,3 +1,4 @@
+using IndustrialTelemetry.Application.Services;
 using IndustrialTelemetry.Domain.Entities;
 using IndustrialTelemetry.Domain.Enums;
 using IndustrialTelemetry.Domain.Events;
@@ -124,5 +125,48 @@ public class TransactionalOutboxTests
 
         ackMsg.ShouldNotBeNull();
         ackMsg.Payload.ShouldContain("Operator-42");
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_WhenRateOfChangeAnomalyTriggered_ShouldEmitProcessAlertTriggeredOutboxEvent()
+    {
+        using var context = CreateInMemoryContext();
+        var batchId = Guid.NewGuid();
+        var detector = new SlidingWindowAnomalyDetector(alertCooldown: TimeSpan.Zero);
+        var t0 = new DateTime(2026, 11, 11, 14, 0, 0, DateTimeKind.Utc);
+
+        var rule = AlertRule.CreateRateOfChange(
+            "TT-101",
+            maxRateOfChangePerMinute: 5.0,
+            minRateOfChangePerMinute: null,
+            AlertSeverity.Critical,
+            "CRITICAL: Reactor thermal runaway rapid rate-of-temperature-rise excursion (dT/dt > 5.0 °C/min)",
+            windowSeconds: 30
+        );
+
+        // Baseline measurement at t0 (85.0 °C)
+        var m1 = TelemetryMeasurement.Create(batchId, t0, "TT-101", 85.0, MeasurementUnit.Celsius);
+        detector.Evaluate(m1, new[] { rule });
+
+        // Rapid temperature excursion 30s later to 88.0 °C (dT/dt = +6.00 °C/min > 5.0 °C/min)
+        var m2 = TelemetryMeasurement.Create(batchId, t0.AddSeconds(30), "TT-101", 88.0, MeasurementUnit.Celsius);
+        var alerts = detector.Evaluate(m2, new[] { rule });
+
+        alerts.Count.ShouldBe(1);
+        var alert = alerts[0];
+
+        // Save triggered alert to EF Core Context
+        await context.ProcessAlerts.AddAsync(alert);
+        await context.SaveChangesAsync();
+
+        // Verify domain event was converted to PostgreSQL Outbox record
+        var outboxMessage = await context.OutboxMessages
+            .FirstOrDefaultAsync(x => x.EventType == nameof(ProcessAlertTriggeredDomainEvent) && x.AggregateId == alert.Id.ToString());
+
+        outboxMessage.ShouldNotBeNull();
+        outboxMessage.AggregateType.ShouldBe(nameof(ProcessAlert));
+        outboxMessage.Payload.ShouldContain("RAPID RATE-OF-CHANGE DETECTED on TT-101");
+        outboxMessage.Payload.ShouldContain("6.00 Celsius/min");
+        outboxMessage.Payload.ShouldContain("Critical");
     }
 }

@@ -106,6 +106,11 @@ public class IndustrialDbContext : DbContext
 
             r.Property(x => x.Description)
                 .HasMaxLength(256);
+
+            r.Property(x => x.MaxRateOfChangePerMinute);
+            r.Property(x => x.MinRateOfChangePerMinute);
+            r.Property(x => x.WindowSeconds)
+                .HasDefaultValue(60);
         });
 
         // 4. Process Alert Entity Configuration

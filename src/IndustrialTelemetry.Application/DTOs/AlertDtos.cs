@@ -5,7 +5,10 @@ public record CreateAlertRuleDto(
     double? MinThreshold,
     double? MaxThreshold,
     string Severity,
-    string Description
+    string Description,
+    double? MaxRateOfChangePerMinute = null,
+    double? MinRateOfChangePerMinute = null,
+    int WindowSeconds = 60
 );
 
 public record AlertRuleResponseDto(
@@ -15,7 +18,10 @@ public record AlertRuleResponseDto(
     double? MaxThreshold,
     string Severity,
     string Description,
-    bool IsActive
+    bool IsActive,
+    double? MaxRateOfChangePerMinute = null,
+    double? MinRateOfChangePerMinute = null,
+    int WindowSeconds = 60
 );
 
 public record ProcessAlertResponseDto(

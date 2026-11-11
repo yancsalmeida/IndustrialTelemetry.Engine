@@ -13,12 +13,20 @@ public class CreateAlertRuleDtoValidator : AbstractValidator<CreateAlertRuleDto>
             .MaximumLength(32);
 
         RuleFor(x => x)
-            .Must(x => x.MinThreshold.HasValue || x.MaxThreshold.HasValue)
-            .WithMessage("At least one threshold (Min or Max) must be set.");
+            .Must(x => x.MinThreshold.HasValue || x.MaxThreshold.HasValue || x.MaxRateOfChangePerMinute.HasValue || x.MinRateOfChangePerMinute.HasValue)
+            .WithMessage("At least one threshold (Min, Max, or Rate-of-Change) must be set.");
 
         RuleFor(x => x)
             .Must(x => !x.MinThreshold.HasValue || !x.MaxThreshold.HasValue || x.MinThreshold < x.MaxThreshold)
             .WithMessage("MinThreshold must be less than MaxThreshold.");
+
+        RuleFor(x => x)
+            .Must(x => !x.MinRateOfChangePerMinute.HasValue || !x.MaxRateOfChangePerMinute.HasValue || x.MinRateOfChangePerMinute < x.MaxRateOfChangePerMinute)
+            .WithMessage("MinRateOfChangePerMinute must be less than MaxRateOfChangePerMinute.");
+
+        RuleFor(x => x.WindowSeconds)
+            .GreaterThan(0)
+            .WithMessage("WindowSeconds must be greater than zero.");
 
         RuleFor(x => x.Severity)
             .NotEmpty()

@@ -15,19 +15,22 @@ public class TelemetryIngestionService
     private readonly IAlertRepository _alertRepo;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITelemetryChannel _channel;
+    private readonly ISlidingWindowAnomalyDetector _anomalyDetector;
 
     public TelemetryIngestionService(
         IBatchRepository batchRepo,
         ITelemetryRepository telemetryRepo,
         IAlertRepository alertRepo,
         IUnitOfWork unitOfWork,
-        ITelemetryChannel channel)
+        ITelemetryChannel channel,
+        ISlidingWindowAnomalyDetector? anomalyDetector = null)
     {
         _batchRepo = batchRepo;
         _telemetryRepo = telemetryRepo;
         _alertRepo = alertRepo;
         _unitOfWork = unitOfWork;
         _channel = channel;
+        _anomalyDetector = anomalyDetector ?? new SlidingWindowAnomalyDetector();
     }
 
     /// <summary>
@@ -48,14 +51,11 @@ public class TelemetryIngestionService
 
         foreach (var measurement in measurements)
         {
-            // Real-time automated threshold rule evaluation
-            foreach (var rule in activeRules)
+            // Automated real-time threshold and sliding-window anomaly evaluation
+            var alerts = _anomalyDetector.Evaluate(measurement, activeRules);
+            if (alerts.Count > 0)
             {
-                var alert = rule.Evaluate(measurement);
-                if (alert != null)
-                {
-                    triggeredAlerts.Add(alert);
-                }
+                triggeredAlerts.AddRange(alerts);
             }
         }
 
@@ -160,12 +160,9 @@ public class TelemetryIngestionService
                 var triggeredAlerts = new List<ProcessAlert>();
                 foreach (var m in measurements)
                 {
-                    foreach (var rule in activeRules)
-                    {
-                        var alert = rule.Evaluate(m);
-                        if (alert != null)
-                            triggeredAlerts.Add(alert);
-                    }
+                    var alerts = _anomalyDetector.Evaluate(m, activeRules);
+                    if (alerts.Count > 0)
+                        triggeredAlerts.AddRange(alerts);
                 }
 
                 await _telemetryRepo.IngestBatchAsync(measurements, ct);

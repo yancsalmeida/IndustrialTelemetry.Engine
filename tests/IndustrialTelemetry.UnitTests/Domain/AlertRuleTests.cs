@@ -113,4 +113,111 @@ public class AlertRuleTests
         // Assert
         alert.ShouldBeNull();
     }
+
+    [Fact]
+    public void CreateRateOfChange_ValidParameters_CreatesRuleCorrectly()
+    {
+        var rule = AlertRule.CreateRateOfChange(
+            "TT-101",
+            maxRateOfChangePerMinute: 5.0,
+            minRateOfChangePerMinute: null,
+            AlertSeverity.Critical,
+            "Thermal Runaway",
+            windowSeconds: 30
+        );
+
+        rule.SensorTag.ShouldBe("TT-101");
+        rule.MaxRateOfChangePerMinute.ShouldBe(5.0);
+        rule.MinRateOfChangePerMinute.ShouldBeNull();
+        rule.WindowSeconds.ShouldBe(30);
+        rule.Severity.ShouldBe(AlertSeverity.Critical);
+        rule.IsActive.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void EvaluateRateOfChange_WhenRateExceedsMaxRate_TriggersCriticalAlert()
+    {
+        var rule = AlertRule.CreateRateOfChange(
+            "TT-101",
+            maxRateOfChangePerMinute: 5.0,
+            minRateOfChangePerMinute: null,
+            AlertSeverity.Critical,
+            "Thermal Runaway",
+            windowSeconds: 30
+        );
+
+        var measurement = TelemetryMeasurement.Create(
+            Guid.NewGuid(),
+            DateTime.UtcNow,
+            "TT-101",
+            88.0,
+            MeasurementUnit.Celsius
+        );
+
+        // Measured rate: +7.5 °C/min (exceeds 5.0 °C/min limit)
+        var alert = rule.EvaluateRateOfChange(measurement, rateOfChangePerMinute: 7.5);
+
+        alert.ShouldNotBeNull();
+        alert.SensorTag.ShouldBe("TT-101");
+        alert.Severity.ShouldBe(AlertSeverity.Critical);
+        alert.TriggeredValue.ShouldBe(88.0);
+        alert.ThresholdValue.ShouldBe(5.0);
+        alert.Message.ShouldContain("RAPID RATE-OF-CHANGE DETECTED");
+        alert.Message.ShouldContain("+7.50 Celsius/min");
+    }
+
+    [Fact]
+    public void EvaluateRateOfChange_WhenRateDropsBelowMinRate_TriggersAlert()
+    {
+        var rule = AlertRule.CreateRateOfChange(
+            "PT-101",
+            maxRateOfChangePerMinute: null,
+            minRateOfChangePerMinute: -1.0,
+            AlertSeverity.Warning,
+            "Depressurization",
+            windowSeconds: 20
+        );
+
+        var measurement = TelemetryMeasurement.Create(
+            Guid.NewGuid(),
+            DateTime.UtcNow,
+            "PT-101",
+            1.5,
+            MeasurementUnit.Bar
+        );
+
+        // Measured rate: -2.4 bar/min (breaches -1.0 bar/min limit)
+        var alert = rule.EvaluateRateOfChange(measurement, rateOfChangePerMinute: -2.4);
+
+        alert.ShouldNotBeNull();
+        alert.Severity.ShouldBe(AlertSeverity.Warning);
+        alert.Message.ShouldContain("RAPID RATE-OF-CHANGE DROP");
+        alert.Message.ShouldContain("-2.40 Bar/min");
+    }
+
+    [Fact]
+    public void EvaluateRateOfChange_WhenRateWithinSafeEnvelope_ReturnsNull()
+    {
+        var rule = AlertRule.CreateRateOfChange(
+            "TT-101",
+            maxRateOfChangePerMinute: 5.0,
+            minRateOfChangePerMinute: -2.0,
+            AlertSeverity.Critical,
+            "Thermal Runaway",
+            windowSeconds: 30
+        );
+
+        var measurement = TelemetryMeasurement.Create(
+            Guid.NewGuid(),
+            DateTime.UtcNow,
+            "TT-101",
+            85.2,
+            MeasurementUnit.Celsius
+        );
+
+        // Measured rate: +0.8 °C/min (within safe [-2.0, 5.0] band)
+        var alert = rule.EvaluateRateOfChange(measurement, rateOfChangePerMinute: 0.8);
+
+        alert.ShouldBeNull();
+    }
 }
