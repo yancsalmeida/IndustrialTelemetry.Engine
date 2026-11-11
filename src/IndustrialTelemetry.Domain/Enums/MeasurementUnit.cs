@@ -9,5 +9,6 @@ public enum MeasurementUnit
     Ph = 4,
     Percent = 5,
     Kilogram = 6,
-    Meters = 7
+    Meters = 7,
+    MolPerLiter = 8
 }

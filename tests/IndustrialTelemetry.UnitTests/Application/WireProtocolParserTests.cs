@@ -88,4 +88,23 @@ public class WireProtocolParserTests
         measurements[3].SensorTag.ShouldBe("AT-101");
         measurements[3].Unit.ShouldBe(MeasurementUnit.Ph);
     }
+
+    [Theory]
+    [InlineData("MolPerLiter")]
+    [InlineData("mol/L")]
+    [InlineData("mol/l")]
+    [InlineData("Molar")]
+    public void TryParseRecord_MolPerLiterVariations_ParsesCorrectly(string unitStr)
+    {
+        var line = $"1730678400000|CA-101-EST|1.25|{unitStr}|Good";
+
+        var success = WireProtocolParser.TryParseRecord(line.AsSpan(), _batchId, out var m);
+
+        success.ShouldBeTrue();
+        m.ShouldNotBeNull();
+        m.SensorTag.ShouldBe("CA-101-EST");
+        m.Value.ShouldBe(1.25, 0.001);
+        m.Unit.ShouldBe(MeasurementUnit.MolPerLiter);
+        m.Quality.ShouldBe(TelemetryQuality.Good);
+    }
 }

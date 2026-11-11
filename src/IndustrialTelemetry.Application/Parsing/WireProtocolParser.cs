@@ -262,6 +262,12 @@ public static class WireProtocolParser
             span.Equals("m", StringComparison.OrdinalIgnoreCase))
             return MeasurementUnit.Meters;
 
+        if (span.Equals("MolPerLiter", StringComparison.OrdinalIgnoreCase) ||
+            span.Equals("mol/L", StringComparison.OrdinalIgnoreCase) ||
+            span.Equals("mol/l", StringComparison.OrdinalIgnoreCase) ||
+            span.Equals("Molar", StringComparison.OrdinalIgnoreCase))
+            return MeasurementUnit.MolPerLiter;
+
         return MeasurementUnit.Celsius;
     }
 
