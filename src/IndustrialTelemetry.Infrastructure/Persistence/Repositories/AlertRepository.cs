@@ -78,4 +78,40 @@ public class AlertRepository : IAlertRepository
             .Select(g => new { BatchId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.BatchId, x => x.Count, ct);
     }
+
+    public async Task<(int TotalAlerts, int UnacknowledgedAlerts, int CriticalAlerts)> GetGlobalCountsAsync(CancellationToken ct = default)
+    {
+        int total = await _context.ProcessAlerts.AsNoTracking().CountAsync(ct);
+        int unacked = await _context.ProcessAlerts.AsNoTracking().CountAsync(a => !a.Acknowledged, ct);
+        int critical = await _context.ProcessAlerts.AsNoTracking()
+            .CountAsync(a => a.Severity == Domain.Enums.AlertSeverity.Critical, ct);
+        return (total, unacked, critical);
+    }
+
+    public async Task<IReadOnlyList<ProcessAlert>> GetRecentAlertsAsync(
+        Guid? batchId = null,
+        string? severity = null,
+        bool? unacknowledgedOnly = null,
+        int limit = 100,
+        CancellationToken ct = default)
+    {
+        IQueryable<ProcessAlert> query = _context.ProcessAlerts.AsNoTracking();
+
+        if (batchId.HasValue)
+            query = query.Where(a => a.BatchId == batchId.Value);
+
+        if (!string.IsNullOrWhiteSpace(severity) &&
+            Enum.TryParse<Domain.Enums.AlertSeverity>(severity.Trim(), ignoreCase: true, out var parsedSeverity))
+        {
+            query = query.Where(a => a.Severity == parsedSeverity);
+        }
+
+        if (unacknowledgedOnly == true)
+            query = query.Where(a => !a.Acknowledged);
+
+        return await query
+            .OrderByDescending(a => a.TimestampUtc)
+            .Take(Math.Clamp(limit, 1, 500))
+            .ToListAsync(ct);
+    }
 }

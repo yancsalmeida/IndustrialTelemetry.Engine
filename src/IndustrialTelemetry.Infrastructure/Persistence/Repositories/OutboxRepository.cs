@@ -54,4 +54,52 @@ public class OutboxRepository : IOutboxRepository
         return await _context.OutboxMessages
             .CountAsync(x => x.ProcessedOnUtc == null, ct);
     }
+
+    public async Task<(int PendingCount, int ProcessedCount, int DeadLetterCount)> GetSummaryCountsAsync(
+        int maxRetries = 5,
+        CancellationToken ct = default)
+    {
+        int pending = await _context.OutboxMessages
+            .AsNoTracking()
+            .CountAsync(x => x.ProcessedOnUtc == null && x.RetryCount < maxRetries, ct);
+        int processed = await _context.OutboxMessages
+            .AsNoTracking()
+            .CountAsync(x => x.ProcessedOnUtc != null, ct);
+        int deadLetter = await _context.OutboxMessages
+            .AsNoTracking()
+            .CountAsync(x => x.ProcessedOnUtc == null && x.RetryCount >= maxRetries, ct);
+        return (pending, processed, deadLetter);
+    }
+
+    public async Task<IReadOnlyList<OutboxMessage>> GetRecentMessagesAsync(
+        bool? pendingOnly = null,
+        bool? deadLetterOnly = null,
+        int maxRetries = 5,
+        int limit = 100,
+        CancellationToken ct = default)
+    {
+        IQueryable<OutboxMessage> query = _context.OutboxMessages.AsNoTracking();
+
+        if (deadLetterOnly == true)
+            query = query.Where(x => x.ProcessedOnUtc == null && x.RetryCount >= maxRetries);
+        else if (pendingOnly == true)
+            query = query.Where(x => x.ProcessedOnUtc == null && x.RetryCount < maxRetries);
+
+        return await query
+            .OrderByDescending(x => x.OccurredOnUtc)
+            .Take(Math.Clamp(limit, 1, 500))
+            .ToListAsync(ct);
+    }
+
+    public async Task<int> RequeueFailedMessagesAsync(int maxRetries = 5, CancellationToken ct = default)
+    {
+        var failed = await _context.OutboxMessages
+            .Where(x => x.ProcessedOnUtc == null && x.RetryCount > 0)
+            .ToListAsync(ct);
+
+        foreach (var msg in failed)
+            msg.RequeueForRetry();
+
+        return failed.Count;
+    }
 }

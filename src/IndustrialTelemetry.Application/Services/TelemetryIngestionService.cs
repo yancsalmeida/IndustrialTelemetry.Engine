@@ -16,6 +16,7 @@ public class TelemetryIngestionService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITelemetryChannel _channel;
     private readonly ISlidingWindowAnomalyDetector _anomalyDetector;
+    private readonly IObservabilityStream? _observabilityStream;
 
     public TelemetryIngestionService(
         IBatchRepository batchRepo,
@@ -23,7 +24,8 @@ public class TelemetryIngestionService
         IAlertRepository alertRepo,
         IUnitOfWork unitOfWork,
         ITelemetryChannel channel,
-        ISlidingWindowAnomalyDetector? anomalyDetector = null)
+        ISlidingWindowAnomalyDetector? anomalyDetector = null,
+        IObservabilityStream? observabilityStream = null)
     {
         _batchRepo = batchRepo;
         _telemetryRepo = telemetryRepo;
@@ -31,6 +33,7 @@ public class TelemetryIngestionService
         _unitOfWork = unitOfWork;
         _channel = channel;
         _anomalyDetector = anomalyDetector ?? new SlidingWindowAnomalyDetector();
+        _observabilityStream = observabilityStream;
     }
 
     /// <summary>
@@ -67,6 +70,44 @@ public class TelemetryIngestionService
         }
 
         await _unitOfWork.SaveChangesAsync(ct);
+
+        _observabilityStream?.Publish(
+            eventType: "telemetry-batch",
+            summary: $"Ingested {measurements.Count} measurements ({triggeredAlerts.Count} alerts)",
+            data: new
+            {
+                count = measurements.Count,
+                alertsTriggered = triggeredAlerts.Count,
+                latestSamples = measurements
+                    .GroupBy(m => m.SensorTag)
+                    .Select(g => g.OrderBy(x => x.TimestampUtc).Last())
+                    .Select(m => new
+                    {
+                        sensorTag = m.SensorTag,
+                        value = m.Value,
+                        unit = m.Unit.ToString(),
+                        timestampUtc = m.TimestampUtc
+                    })
+                    .ToArray()
+            });
+
+        foreach (var alert in triggeredAlerts)
+        {
+            _observabilityStream?.Publish(
+                eventType: "alert-triggered",
+                summary: $"[{alert.Severity}] {alert.SensorTag}: {alert.TriggeredValue:F2} (threshold {alert.ThresholdValue:F2})",
+                data: new
+                {
+                    id = alert.Id,
+                    batchId = alert.BatchId,
+                    sensorTag = alert.SensorTag,
+                    severity = alert.Severity.ToString(),
+                    triggeredValue = alert.TriggeredValue,
+                    thresholdValue = alert.ThresholdValue,
+                    message = alert.Message,
+                    timestampUtc = alert.TimestampUtc
+                });
+        }
 
         return new IngestResultDto(measurements.Count, triggeredAlerts.Count);
     }

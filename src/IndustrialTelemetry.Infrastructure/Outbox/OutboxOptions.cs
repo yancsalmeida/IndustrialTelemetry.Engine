@@ -31,4 +31,14 @@ public class OutboxOptions
     /// Retention period in days for processed outbox messages.
     /// </summary>
     public int RetentionDays { get; set; } = 7;
+
+    /// <summary>
+    /// Optional HTTP webhook endpoint URLs notified when outbox events are dispatched.
+    /// </summary>
+    public string[] WebhookUrls { get; set; } = [];
+
+    /// <summary>
+    /// Per-webhook HTTP dispatch timeout in milliseconds.
+    /// </summary>
+    public int WebhookTimeoutMs { get; set; } = 3000;
 }

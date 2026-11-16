@@ -12,4 +12,11 @@ public interface IAlertRepository
     Task<IReadOnlyList<ProcessAlert>> GetAlertsByBatchIdAsync(Guid batchId, CancellationToken ct = default);
     Task<int> GetCountByBatchAsync(Guid batchId, CancellationToken ct = default);
     Task<IReadOnlyDictionary<Guid, int>> GetCountsByBatchesAsync(IEnumerable<Guid> batchIds, CancellationToken ct = default);
+    Task<(int TotalAlerts, int UnacknowledgedAlerts, int CriticalAlerts)> GetGlobalCountsAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<ProcessAlert>> GetRecentAlertsAsync(
+        Guid? batchId = null,
+        string? severity = null,
+        bool? unacknowledgedOnly = null,
+        int limit = 100,
+        CancellationToken ct = default);
 }

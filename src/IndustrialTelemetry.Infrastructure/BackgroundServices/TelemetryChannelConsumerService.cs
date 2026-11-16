@@ -18,6 +18,7 @@ public class TelemetryChannelConsumerService : BackgroundService
     private readonly ITelemetryChannel _channel;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TelemetryChannelConsumerService> _logger;
+    private readonly IObservabilityStream? _observabilityStream;
     private readonly int _batchSize;
     private readonly int _flushIntervalMs;
 
@@ -25,11 +26,13 @@ public class TelemetryChannelConsumerService : BackgroundService
         ITelemetryChannel channel,
         IServiceScopeFactory scopeFactory,
         ILogger<TelemetryChannelConsumerService> logger,
-        IOptions<TelemetryChannelOptions>? options = null)
+        IOptions<TelemetryChannelOptions>? options = null,
+        IObservabilityStream? observabilityStream = null)
     {
         _channel = channel;
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _observabilityStream = observabilityStream;
         _batchSize = options?.Value?.BatchSize > 0 ? options.Value.BatchSize : 1000;
         _flushIntervalMs = options?.Value?.FlushIntervalMs > 0 ? options.Value.FlushIntervalMs : 50;
     }
@@ -124,6 +127,26 @@ public class TelemetryChannelConsumerService : BackgroundService
             var repository = scope.ServiceProvider.GetRequiredService<ITelemetryRepository>();
             var count = await repository.BulkCopyAsync(batch, ct);
             sw.Stop();
+
+            _observabilityStream?.Publish(
+                eventType: "telemetry-batch",
+                summary: $"Channel persisted {count} measurements",
+                data: new
+                {
+                    count,
+                    elapsedMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2),
+                    latestSamples = batch
+                        .GroupBy(m => m.SensorTag)
+                        .Select(g => g.OrderBy(x => x.TimestampUtc).Last())
+                        .Select(m => new
+                        {
+                            sensorTag = m.SensorTag,
+                            value = m.Value,
+                            unit = m.Unit.ToString(),
+                            timestampUtc = m.TimestampUtc
+                        })
+                        .ToArray()
+                });
 
             var rate = sw.Elapsed.TotalSeconds > 0 ? count / sw.Elapsed.TotalSeconds : count * 1000.0;
             _logger.LogDebug(

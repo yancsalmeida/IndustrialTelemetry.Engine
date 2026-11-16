@@ -13,4 +13,12 @@ public interface IOutboxRepository
     Task UpdateRangeAsync(IEnumerable<OutboxMessage> messages, CancellationToken ct = default);
     Task<int> CleanupProcessedAsync(DateTime olderThanUtc, CancellationToken ct = default);
     Task<int> GetPendingCountAsync(CancellationToken ct = default);
+    Task<(int PendingCount, int ProcessedCount, int DeadLetterCount)> GetSummaryCountsAsync(int maxRetries = 5, CancellationToken ct = default);
+    Task<IReadOnlyList<OutboxMessage>> GetRecentMessagesAsync(
+        bool? pendingOnly = null,
+        bool? deadLetterOnly = null,
+        int maxRetries = 5,
+        int limit = 100,
+        CancellationToken ct = default);
+    Task<int> RequeueFailedMessagesAsync(int maxRetries = 5, CancellationToken ct = default);
 }

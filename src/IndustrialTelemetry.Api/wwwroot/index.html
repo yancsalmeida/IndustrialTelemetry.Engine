@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IndustrialTelemetry.Engine — PostgreSQL Historian & Outbox Observability</title>
+  <style>
+    :root {
+      --bg: #070b12;
+      --panel: #0f172a;
+      --panel-alt: #131c31;
+      --border: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --emerald: #34d399;
+      --amber: #fbbf24;
+      --rose: #fb7185;
+      --purple: #c084fc;
+      --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.45;
+      padding: 1.25rem;
+    }
+    .container { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem; }
+    header {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; color: #f8fafc; letter-spacing: -0.01em; }
+    header .sub { font-size: 0.8rem; color: var(--muted); font-family: var(--font-mono); margin-top: 0.2rem; }
+    .header-actions { display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; }
+    .badge {
+      font-family: var(--font-mono); font-size: 0.76rem; padding: 0.3rem 0.65rem;
+      border-radius: 999px; border: 1px solid var(--border); background: #0b1220; color: var(--muted);
+    }
+    .badge.ok { color: var(--emerald); border-color: rgba(52, 211, 153, 0.4); background: rgba(16, 185, 129, 0.12); }
+    .badge.err { color: var(--rose); border-color: rgba(251, 113, 133, 0.4); background: rgba(244, 63, 94, 0.12); }
+    .btn {
+      font-family: var(--font-sans); font-size: 0.78rem; font-weight: 600; cursor: pointer;
+      padding: 0.38rem 0.75rem; border-radius: 6px; border: 1px solid #334155;
+      background: #1e293b; color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;
+    }
+    .btn:hover { background: #273449; }
+    .btn-primary { background: #0284c7; border-color: #38bdf8; color: #fff; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn-amber { background: rgba(245, 158, 11, 0.15); border-color: #f59e0b; color: #fcd34d; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.75rem; }
+    @media (max-width: 1100px) { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .kpi-card {
+      background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+      border-radius: 8px; padding: 0.75rem 0.9rem;
+    }
+    .kpi-card .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .kpi-card .value { font-size: 1.25rem; font-weight: 700; font-family: var(--font-mono); margin: 0.25rem 0; }
+    .kpi-card .meta { font-size: 0.72rem; color: var(--muted); font-family: var(--font-mono); }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem;
+    }
+    .panel-head {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .panel-title { font-size: 0.95rem; font-weight: 600; color: #f8fafc; }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+    select {
+      background: #0b1220; color: var(--text); border: 1px solid #334155; border-radius: 6px;
+      padding: 0.34rem 0.55rem; font-size: 0.78rem; font-family: var(--font-mono);
+    }
+    .strip {
+      display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.75rem;
+      background: #080d17; border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.45rem 0.7rem; font-family: var(--font-mono); font-size: 0.76rem; margin-bottom: 0.65rem;
+    }
+    canvas {
+      display: block; width: 100%; height: auto; background: #070b12;
+      border: 1px solid var(--border); border-radius: 8px;
+    }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 1024px) { .two-col { grid-template-columns: 1fr; } }
+    .table-wrap { overflow-x: auto; max-height: 290px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.76rem; font-family: var(--font-mono); }
+    th, td { padding: 0.45rem 0.6rem; text-align: left; border-bottom: 1px solid #1a2436; white-space: nowrap; }
+    th { background: #0b1220; color: var(--muted); position: sticky; top: 0; z-index: 1; }
+    tr.clickable:hover { background: rgba(56, 189, 248, 0.08); cursor: pointer; }
+    .pill {
+      display: inline-block; padding: 0.12rem 0.45rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600;
+    }
+    .pill-ok { background: rgba(16, 185, 129, 0.16); color: var(--emerald); }
+    .pill-warn { background: rgba(245, 158, 11, 0.16); color: var(--amber); }
+    .pill-crit { background: rgba(244, 63, 94, 0.18); color: var(--rose); }
+    .sse-feed {
+      background: #070b12; border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem;
+      max-height: 150px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.73rem;
+      margin-bottom: 0.75rem;
+    }
+    .sse-line { padding: 0.2rem 0; border-bottom: 1px dashed #162033; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>IndustrialTelemetry.Engine &mdash; Time-Series, Alerts &amp; Outbox Observability</h1>
+        <div class="sub">PostgreSQL Binary COPY Historian &middot; Rate-of-Change Anomaly Engine &middot; Transactional Outbox SSE/Webhook Dispatcher</div>
+      </div>
+      <div class="header-actions">
+        <span id="sseStatusBadge" class="badge">&bull; Connecting SSE...</span>
+        <button id="btnRefreshAll" class="btn btn-primary">&#8635; Refresh</button>
+        <a href="/swagger" target="_blank" class="btn">Swagger API Docs &#8599;</a>
+      </div>
+    </header>
+
+    <section class="kpi-grid">
+      <div class="kpi-card" style="border-left-color: #38bdf8;">
+        <div class="label">PostgreSQL Readings</div>
+        <div class="value" id="kpiTotalMeas" style="color: #38bdf8;">0</div>
+        <div class="meta" id="kpiActiveTags">0 active tags</div>
+      </div>
+      <div class="kpi-card" style="border-left-color: #06b6d4;">
+        <div class="label">Ingestion Channel</div>
+        <div class="value" id="kpiChannelQueue" style="color: #67e8f9;">0 / 0</div>
+        <div class="meta" id="kpiChannelRate">Drained: 0 | Dropped: 0</div>
+      </div>
+      <div class="kpi-card" style="border-left-color: #fb7185;">
+        <div class="label">Safety Alarms</div>
+        <div class="value" id="kpiAlertsTotal" style="color: #fda4af;">0</div>
+        <div class="meta" id="kpiAlertsMeta">Unacked: 0 | Critical: 0</div>
+      </div>
+      <div class="kpi-card" style="border-left-color: #34d399;">
+        <div class="label">Outbox Processed</div>
+        <div class="value" id="kpiOutboxProcessed" style="color: #34d399;">0</div>
+        <div class="meta" id="kpiOutboxPending">Pending: 0</div>
+      </div>
+      <div class="kpi-card" style="border-left-color: #f59e0b;">
+        <div class="label">Outbox Dead-Letter</div>
+        <div class="value" id="kpiOutboxDead" style="color: #fbbf24;">0</div>
+        <div class="meta" id="kpiLiveDispatched">Live Dispatched: 0</div>
+      </div>
+      <div class="kpi-card" style="border-left-color: #c084fc;">
+        <div class="label">Live SSE Stream</div>
+        <div class="value" id="kpiSseEvents" style="color: #c084fc;">0</div>
+        <div class="meta" id="kpiSseSubs">Subscribers: 0</div>
+      </div>
+    </section>
+
+    <!-- Sensor Time-Series Explorer -->
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">PostgreSQL Time-Series Historian &amp; Rate-of-Change ($dV/dt$)</div>
+        </div>
+        <div class="controls">
+          <select id="selPrimaryTag"></select>
+          <select id="selSecondaryTag"><option value="">Compare: (none)</option></select>
+          <select id="selPointLimit">
+            <option value="120">Last 120 pts</option>
+            <option value="300" selected>Last 300 pts</option>
+            <option value="600">Last 600 pts</option>
+          </select>
+        </div>
+      </div>
+      <div class="strip">
+        <span id="stripPrimaryStats">Primary: --</span>
+        <span id="stripSecondaryStats" style="color: var(--purple);">Compare: --</span>
+      </div>
+      <canvas id="tsCanvas" width="1280" height="260"></canvas>
+
+      <div class="table-wrap" style="margin-top: 0.75rem; max-height: 210px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Sensor Tag</th>
+              <th>Latest Value</th>
+              <th>Unit</th>
+              <th>Min</th>
+              <th>Avg</th>
+              <th>Max</th>
+              <th>dV/dt (/min)</th>
+              <th>Samples</th>
+              <th>Last Seen (UTC)</th>
+            </tr>
+          </thead>
+          <tbody id="sensorsTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Bottom 2-Column Grid: Alerts & Transactional Outbox Audit -->
+    <section class="two-col">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Process &amp; Safety Alerts Audit</div>
+          <div class="controls">
+            <select id="selAlertFilter">
+              <option value="all" selected>All Alerts</option>
+              <option value="unacked">Unacknowledged Only</option>
+              <option value="Critical">Critical Only</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Severity</th>
+                <th>Tag</th>
+                <th>Value / Limit</th>
+                <th>Message</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="alertsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Transactional Outbox &amp; Live SSE Dispatch Log</div>
+          <div class="controls">
+            <select id="selOutboxFilter">
+              <option value="all" selected>All Events</option>
+              <option value="pending">Pending Only</option>
+              <option value="dead">Dead-Letter Only</option>
+            </select>
+            <button id="btnRequeueDead" class="btn btn-amber">Requeue Failed</button>
+          </div>
+        </div>
+        <div id="sseFeed" class="sse-feed">
+          <div class="sse-line" style="color: var(--muted);">Waiting for Server-Sent Events on /api/observability/stream...</div>
+        </div>
+        <div class="table-wrap" style="max-height: 185px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Occurred (UTC)</th>
+                <th>Event Type</th>
+                <th>Aggregate</th>
+                <th>Status</th>
+                <th>Retries</th>
+                <th>Error / Payload</th>
+              </tr>
+            </thead>
+            <tbody id="outboxTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const els = {
+      sseStatusBadge: document.getElementById('sseStatusBadge'),
+      btnRefreshAll: document.getElementById('btnRefreshAll'),
+      kpiTotalMeas: document.getElementById('kpiTotalMeas'),
+      kpiActiveTags: document.getElementById('kpiActiveTags'),
+      kpiChannelQueue: document.getElementById('kpiChannelQueue'),
+      kpiChannelRate: document.getElementById('kpiChannelRate'),
+      kpiAlertsTotal: document.getElementById('kpiAlertsTotal'),
+      kpiAlertsMeta: document.getElementById('kpiAlertsMeta'),
+      kpiOutboxProcessed: document.getElementById('kpiOutboxProcessed'),
+      kpiOutboxPending: document.getElementById('kpiOutboxPending'),
+      kpiOutboxDead: document.getElementById('kpiOutboxDead'),
+      kpiLiveDispatched: document.getElementById('kpiLiveDispatched'),
+      kpiSseEvents: document.getElementById('kpiSseEvents'),
+      kpiSseSubs: document.getElementById('kpiSseSubs'),
+      selPrimaryTag: document.getElementById('selPrimaryTag'),
+      selSecondaryTag: document.getElementById('selSecondaryTag'),
+      selPointLimit: document.getElementById('selPointLimit'),
+      stripPrimaryStats: document.getElementById('stripPrimaryStats'),
+      stripSecondaryStats: document.getElementById('stripSecondaryStats'),
+      tsCanvas: document.getElementById('tsCanvas'),
+      sensorsTableBody: document.getElementById('sensorsTableBody'),
+      selAlertFilter: document.getElementById('selAlertFilter'),
+      alertsTableBody: document.getElementById('alertsTableBody'),
+      selOutboxFilter: document.getElementById('selOutboxFilter'),
+      btnRequeueDead: document.getElementById('btnRequeueDead'),
+      sseFeed: document.getElementById('sseFeed'),
+      outboxTableBody: document.getElementById('outboxTableBody')
+    };
+
+    let cachedSensors = [];
+    let sseSource = null;
+
+    const fmtUtc = (iso) => iso ? iso.replace('T', ' ').slice(0, 19) : '--';
+
+    async function loadOverviewAndSensors() {
+      const [overviewRes, sensorsRes] = await Promise.all([
+        fetch('/api/observability/overview'),
+        fetch('/api/observability/sensors?rateWindowSeconds=60')
+      ]);
+
+      if (overviewRes.ok) {
+        const ov = await overviewRes.json();
+        els.kpiTotalMeas.textContent = ov.totalMeasurements.toLocaleString();
+        els.kpiActiveTags.textContent = `${ov.activeSensorTagsCount} active tags`;
+        els.kpiChannelQueue.textContent = `${ov.channelStatus.currentCount} / ${ov.channelStatus.capacity}`;
+        els.kpiChannelRate.textContent = `Drained: ${ov.channelStatus.totalDrained.toLocaleString()} | Dropped: ${ov.channelStatus.totalDropped}`;
+        els.kpiAlertsTotal.textContent = ov.totalAlerts;
+        els.kpiAlertsMeta.textContent = `Unacked: ${ov.unacknowledgedAlerts} | Critical: ${ov.criticalAlerts}`;
+        els.kpiOutboxProcessed.textContent = ov.outboxProcessedCount;
+        els.kpiOutboxPending.textContent = `Pending: ${ov.outboxPendingCount}`;
+        els.kpiOutboxDead.textContent = ov.outboxDeadLetterCount;
+        els.kpiLiveDispatched.textContent = `Live Dispatched: ${ov.liveOutboxDispatchedCount}`;
+        els.kpiSseEvents.textContent = ov.totalSseEventsPublished.toLocaleString();
+        els.kpiSseSubs.textContent = `Subscribers: ${ov.activeSseSubscribers}`;
+      }
+
+      if (sensorsRes.ok) {
+        cachedSensors = await sensorsRes.json();
+        populateSensorSelects(cachedSensors);
+        renderSensorsTable(cachedSensors);
+        await loadTimeSeriesChart();
+      }
+    }
+
+    function populateSensorSelects(sensors) {
+      const prevPrimary = els.selPrimaryTag.value;
+      const prevSecondary = els.selSecondaryTag.value;
+      const tags = sensors.map(s => s.sensorTag);
+
+      els.selPrimaryTag.innerHTML = tags.length === 0
+        ? '<option value="">(no sensors yet)</option>'
+        : tags.map(t => `<option value="${t}">${t}</option>`).join('');
+
+      els.selSecondaryTag.innerHTML = '<option value="">Compare: (none)</option>' +
+        tags.map(t => `<option value="${t}">Compare: ${t}</option>`).join('');
+
+      if (prevPrimary && tags.includes(prevPrimary)) {
+        els.selPrimaryTag.value = prevPrimary;
+      } else if (tags.includes('SP-TT-201')) {
+        els.selPrimaryTag.value = 'SP-TT-201';
+      }
+
+      if (prevSecondary && tags.includes(prevSecondary)) {
+        els.selSecondaryTag.value = prevSecondary;
+      } else if (tags.includes('SP-AT-201-CB') && !prevSecondary && els.selPrimaryTag.value === 'SP-TT-201') {
+        els.selSecondaryTag.value = 'SP-AT-201-CB';
+      }
+    }
+
+    function renderSensorsTable(sensors) {
+      if (!sensors.length) {
+        els.sensorsTableBody.innerHTML = '<tr><td colspan="9" style="color:var(--muted);">No telemetry rows persisted in PostgreSQL yet.</td></tr>';
+        return;
+      }
+      els.sensorsTableBody.innerHTML = sensors.map(s => `
+        <tr class="clickable" data-tag="${s.sensorTag}">
+          <td style="color:#38bdf8;font-weight:700;">${s.sensorTag}</td>
+          <td>${s.latestValue.toFixed(3)}</td>
+          <td>${s.unit}</td>
+          <td>${s.minRecent.toFixed(2)}</td>
+          <td>${s.avgRecent.toFixed(2)}</td>
+          <td>${s.maxRecent.toFixed(2)}</td>
+          <td style="color:${Math.abs(s.rateOfChangePerMin) > 2 ? '#fbbf24' : '#34d399'};">${s.rateOfChangePerMin >= 0 ? '+' : ''}${s.rateOfChangePerMin.toFixed(3)}</td>
+          <td>${s.sampleCount.toLocaleString()}</td>
+          <td>${fmtUtc(s.latestTimestampUtc)}</td>
+        </tr>
+      `).join('');
+
+      els.sensorsTableBody.querySelectorAll('tr[data-tag]').forEach(row => {
+        row.addEventListener('click', () => {
+          els.selPrimaryTag.value = row.getAttribute('data-tag');
+          loadTimeSeriesChart();
+        });
+      });
+    }
+
+    async function loadTimeSeriesChart() {
+      const pTag = els.selPrimaryTag.value;
+      const sTag = els.selSecondaryTag.value;
+      const limit = parseInt(els.selPointLimit.value || '300', 10);
+      if (!pTag) return;
+
+      const pRes = await fetch(`/api/observability/timeseries?sensorTag=${encodeURIComponent(pTag)}&limit=${limit}`);
+      const pPts = pRes.ok ? await pRes.json() : [];
+
+      let sPts = [];
+      if (sTag && sTag !== pTag) {
+        const sRes = await fetch(`/api/observability/timeseries?sensorTag=${encodeURIComponent(sTag)}&limit=${limit}`);
+        sPts = sRes.ok ? await sRes.json() : [];
+      }
+
+      const pSummary = cachedSensors.find(s => s.sensorTag === pTag);
+      els.stripPrimaryStats.textContent = pSummary
+        ? `${pTag}: ${pSummary.latestValue.toFixed(3)} ${pSummary.unit} | Min ${pSummary.minRecent.toFixed(2)} / Avg ${pSummary.avgRecent.toFixed(2)} / Max ${pSummary.maxRecent.toFixed(2)} | dV/dt ${pSummary.rateOfChangePerMin.toFixed(3)}/min`
+        : `${pTag}: ${pPts.length} points`;
+
+      const sSummary = sTag ? cachedSensors.find(s => s.sensorTag === sTag) : null;
+      els.stripSecondaryStats.textContent = sSummary
+        ? `${sTag}: ${sSummary.latestValue.toFixed(3)} ${sSummary.unit} | dV/dt ${sSummary.rateOfChangePerMin.toFixed(3)}/min`
+        : 'Compare: (none)';
+
+      drawTimeSeriesCanvas(pTag, pPts, sTag, sPts);
+    }
+
+    function drawTimeSeriesCanvas(pTag, pPts, sTag, sPts) {
+      const canvas = els.tsCanvas;
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      const padL = 62, padR = 62, padT = 26, padB = 28;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#070b12';
+      ctx.fillRect(0, 0, W, H);
+
+      if (!pPts.length) {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '13px monospace';
+        ctx.fillText('No time-series data available for selected sensor tag.', padL, padT + 40);
+        return;
+      }
+
+      const pVals = pPts.map(x => x.value);
+      let pMin = Math.min(...pVals), pMax = Math.max(...pVals);
+      if (Math.abs(pMax - pMin) < 1e-6) { pMin -= 1; pMax += 1; }
+      const pPad = (pMax - pMin) * 0.1; pMin -= pPad; pMax += pPad;
+
+      let sMin = 0, sMax = 1;
+      if (sPts.length) {
+        const sVals = sPts.map(x => x.value);
+        sMin = Math.min(...sVals); sMax = Math.max(...sVals);
+        if (Math.abs(sMax - sMin) < 1e-6) { sMin -= 0.5; sMax += 0.5; }
+        const sPad = (sMax - sMin) * 0.1; sMin -= sPad; sMax += sPad;
+      }
+
+      ctx.strokeStyle = 'rgba(51, 65, 85, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.font = '11px monospace';
+      for (let k = 0; k <= 4; k++) {
+        const y = padT + (k / 4) * plotH;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+
+        const pv = pMax - (k / 4) * (pMax - pMin);
+        ctx.fillStyle = '#38bdf8'; ctx.textAlign = 'right';
+        ctx.fillText(pv.toFixed(2), padL - 6, y + 4);
+
+        if (sPts.length) {
+          const sv = sMax - (k / 4) * (sMax - sMin);
+          ctx.fillStyle = '#c084fc'; ctx.textAlign = 'left';
+          ctx.fillText(sv.toFixed(3), W - padR + 6, y + 4);
+        }
+      }
+
+      const plotLine = (pts, minV, maxV, color, width) => {
+        if (!pts.length) return;
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        pts.forEach((pt, idx) => {
+          const x = padL + (pts.length <= 1 ? 0 : (idx / (pts.length - 1)) * plotW);
+          const y = padT + plotH - ((pt.value - minV) / (maxV - minV)) * plotH;
+          if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      plotLine(pPts, pMin, pMax, '#38bdf8', 2.4);
+      if (sPts.length) plotLine(sPts, sMin, sMax, '#c084fc', 2.0);
+
+      ctx.fillStyle = '#38bdf8'; ctx.textAlign = 'left';
+      ctx.fillText(`— ${pTag}`, padL, 16);
+      if (sPts.length) {
+        ctx.fillStyle = '#c084fc';
+        ctx.fillText(`— ${sTag}`, padL + 160, 16);
+      }
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.textAlign = 'left';
+      ctx.fillText(fmtUtc(pPts[0].timestampUtc), padL, H - 8);
+      ctx.textAlign = 'right';
+      ctx.fillText(fmtUtc(pPts[pPts.length - 1].timestampUtc), W - padR, H - 8);
+    }
+
+    async function loadAlerts() {
+      const mode = els.selAlertFilter.value;
+      let url = '/api/observability/alerts?limit=60';
+      if (mode === 'unacked') url += '&unacknowledgedOnly=true';
+      if (mode === 'Critical') url += '&severity=Critical';
+
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const alerts = await res.json();
+      if (!alerts.length) {
+        els.alertsTableBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);">No alerts recorded.</td></tr>';
+        return;
+      }
+
+      els.alertsTableBody.innerHTML = alerts.map(a => {
+        const cls = a.severity === 'Critical' ? 'pill-crit' : 'pill-warn';
+        const ackCol = a.acknowledged
+          ? `<span class="pill pill-ok">ACK (${a.acknowledgedBy || 'OP'})</span>`
+          : `<button class="btn" style="padding:0.15rem 0.45rem;font-size:0.7rem;" data-ack-id="${a.id}">Acknowledge</button>`;
+        return `
+          <tr>
+            <td>${fmtUtc(a.timestampUtc)}</td>
+            <td><span class="pill ${cls}">${a.severity}</span></td>
+            <td>${a.sensorTag}</td>
+            <td>${a.triggeredValue.toFixed(2)} / ${a.thresholdValue.toFixed(2)}</td>
+            <td title="${a.message}">${a.message.slice(0, 44)}</td>
+            <td>${ackCol}</td>
+          </tr>
+        `;
+      }).join('');
+
+      els.alertsTableBody.querySelectorAll('button[data-ack-id]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-ack-id');
+          await fetch(`/api/alerts/${id}/acknowledge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ operatorId: 'SCADA-OBS-01' })
+          });
+          await Promise.all([loadAlerts(), loadOverviewAndSensors()]);
+        });
+      });
+    }
+
+    async function loadOutbox() {
+      const mode = els.selOutboxFilter.value;
+      let url = '/api/observability/outbox?limit=50';
+      if (mode === 'pending') url += '&pendingOnly=true';
+      if (mode === 'dead') url += '&deadLetterOnly=true';
+
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      const msgs = data.recentMessages || [];
+
+      if (!msgs.length) {
+        els.outboxTableBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);">No outbox messages matching filter.</td></tr>';
+        return;
+      }
+
+      els.outboxTableBody.innerHTML = msgs.map(m => {
+        const pillCls = m.status === 'PROCESSED' ? 'pill-ok' : (m.status === 'DEAD_LETTER' ? 'pill-crit' : 'pill-warn');
+        const detail = (m.lastError || m.payload || '').slice(0, 48);
+        return `
+          <tr>
+            <td>${fmtUtc(m.occurredOnUtc)}</td>
+            <td style="color:#38bdf8;">${m.eventType}</td>
+            <td>${m.aggregateType}:${m.aggregateId.slice(0, 8)}</td>
+            <td><span class="pill ${pillCls}">${m.status}</span></td>
+            <td>${m.retryCount}</td>
+            <td title="${(m.lastError || m.payload || '').replace(/"/g, '&quot;')}">${detail}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function appendSseLine(evtType, payload) {
+      const line = document.createElement('div');
+      line.className = 'sse-line';
+      const color = evtType === 'alert-triggered' ? '#fb7185'
+        : (evtType === 'outbox-dispatched' ? '#34d399' : '#38bdf8');
+      line.innerHTML = `<span style="color:${color};font-weight:700;">[${evtType}]</span> <span>${fmtUtc(payload.timestampUtc)}</span> &mdash; ${payload.summary || ''}`;
+      if (els.sseFeed.firstChild && els.sseFeed.firstChild.textContent?.includes('Waiting for Server-Sent')) {
+        els.sseFeed.innerHTML = '';
+      }
+      els.sseFeed.prepend(line);
+      while (els.sseFeed.children.length > 35) els.sseFeed.lastChild.remove();
+    }
+
+    function connectSse() {
+      if (sseSource) sseSource.close();
+      sseSource = new EventSource('/api/observability/stream');
+      sseSource.onopen = () => {
+        els.sseStatusBadge.className = 'badge ok';
+        els.sseStatusBadge.textContent = '• SSE Live Stream';
+      };
+      sseSource.onerror = () => {
+        els.sseStatusBadge.className = 'badge err';
+        els.sseStatusBadge.textContent = '• SSE Reconnecting...';
+      };
+      ['connected', 'telemetry-batch', 'outbox-dispatched', 'alert-triggered'].forEach(evtName => {
+        sseSource.addEventListener(evtName, (ev) => {
+          try {
+            const parsed = JSON.parse(ev.data);
+            appendSseLine(evtName, parsed);
+            if (evtName === 'outbox-dispatched') loadOutbox();
+            if (evtName === 'alert-triggered') loadAlerts();
+          } catch {}
+        });
+      });
+    }
+
+    async function refreshAll() {
+      await Promise.all([loadOverviewAndSensors(), loadAlerts(), loadOutbox()]);
+    }
+
+    els.btnRefreshAll.addEventListener('click', refreshAll);
+    els.selPrimaryTag.addEventListener('change', loadTimeSeriesChart);
+    els.selSecondaryTag.addEventListener('change', loadTimeSeriesChart);
+    els.selPointLimit.addEventListener('change', loadTimeSeriesChart);
+    els.selAlertFilter.addEventListener('change', loadAlerts);
+    els.selOutboxFilter.addEventListener('change', loadOutbox);
+    els.btnRequeueDead.addEventListener('click', async () => {
+      await fetch('/api/observability/outbox/requeue-failed', { method: 'POST' });
+      await Promise.all([loadOutbox(), loadOverviewAndSensors()]);
+    });
+
+    connectSse();
+    refreshAll();
+    setInterval(loadOverviewAndSensors, 4000);
+  </script>
+</body>
+</html>

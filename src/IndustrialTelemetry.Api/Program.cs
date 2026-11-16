@@ -110,11 +110,14 @@ app.Use(async (context, next) =>
     await next();
 });
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "IndustrialTelemetry.Engine v1");
-    c.RoutePrefix = string.Empty; // Serve Swagger UI directly at root '/'
+    c.RoutePrefix = "swagger";
 });
 
 app.UseRateLimiter();

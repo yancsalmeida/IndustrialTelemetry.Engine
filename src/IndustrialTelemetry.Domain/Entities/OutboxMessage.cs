@@ -86,4 +86,11 @@ public class OutboxMessage
     {
         ProcessedOnUtc = null;
     }
+
+    public void RequeueForRetry()
+    {
+        ProcessedOnUtc = null;
+        RetryCount = 0;
+        LastError = null;
+    }
 }

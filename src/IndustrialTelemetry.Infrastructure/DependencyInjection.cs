@@ -32,9 +32,12 @@ public static class DependencyInjection
         services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-        // Transactional Outbox Pattern & Event Publisher
+        // Transactional Outbox Pattern & Real-Time SSE + Webhook Event Publisher
         services.Configure<Outbox.OutboxOptions>(configuration.GetSection(Outbox.OutboxOptions.SectionName));
-        services.AddSingleton<IEventPublisher, Outbox.InMemoryEventPublisher>();
+        services.AddSingleton<IObservabilityStream, Outbox.ObservabilityStream>();
+        services.AddSingleton<Outbox.LiveOutboxEventPublisher>();
+        services.AddSingleton<IEventPublisher>(sp => sp.GetRequiredService<Outbox.LiveOutboxEventPublisher>());
+        services.AddSingleton<Outbox.IOutboxDispatchMetrics>(sp => sp.GetRequiredService<Outbox.LiveOutboxEventPublisher>());
         services.AddHostedService<OutboxProcessorBackgroundService>();
 
         // High-throughput telemetry channel and background consumer service
