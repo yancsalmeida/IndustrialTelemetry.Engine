@@ -13,6 +13,35 @@ public static class DbInitializer
         {
             await context.Database.EnsureCreatedAsync(ct);
 
+            if (context.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                const string upgradeSql = """
+                    CREATE TABLE IF NOT EXISTS outbox_messages (
+                        "Id" uuid NOT NULL,
+                        "EventType" character varying(128) NOT NULL,
+                        "AggregateType" character varying(64) NOT NULL,
+                        "AggregateId" character varying(64) NOT NULL,
+                        "Payload" text NOT NULL,
+                        "OccurredOnUtc" timestamp with time zone NOT NULL,
+                        "ProcessedOnUtc" timestamp with time zone NULL,
+                        "RetryCount" integer NOT NULL DEFAULT 0,
+                        "LastError" character varying(2048) NULL,
+                        "CorrelationId" character varying(128) NULL,
+                        CONSTRAINT "PK_outbox_messages" PRIMARY KEY ("Id")
+                    );
+                    CREATE INDEX IF NOT EXISTS "IX_outbox_messages_ProcessedOnUtc_OccurredOnUtc"
+                        ON outbox_messages ("ProcessedOnUtc", "OccurredOnUtc");
+                    CREATE INDEX IF NOT EXISTS "IX_outbox_messages_AggregateType_AggregateId"
+                        ON outbox_messages ("AggregateType", "AggregateId");
+
+                    ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS "MaxRateOfChangePerMinute" double precision NULL;
+                    ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS "MinRateOfChangePerMinute" double precision NULL;
+                    ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS "WindowSeconds" integer NOT NULL DEFAULT 60;
+                    """;
+
+                await context.Database.ExecuteSqlRawAsync(upgradeSql, ct);
+            }
+
             if (!await context.AlertRules.AnyAsync(ct))
             {
                 logger.LogInformation("Seeding default industrial safety alert rules...");
