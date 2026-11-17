@@ -64,6 +64,21 @@ public static class DbInitializer
                 await context.SaveChangesAsync(ct);
             }
 
+            if (!await context.AlertRules.AnyAsync(r => r.SensorTag == "SP-TT-201", ct))
+            {
+                logger.LogInformation("Seeding Series-Parallel CSTR (SP-TT-201) safety alert rules...");
+
+                var spRules = new[]
+                {
+                    AlertRule.Create("SP-TT-201", 30.0, 110.0, AlertSeverity.Warning, "Series-Parallel CSTR temperature approaching runaway envelope"),
+                    AlertRule.Create("SP-TT-201", null, 126.85, AlertSeverity.Critical, "CRITICAL: Series-Parallel CSTR thermal runaway trip limit (>126.85 C)"),
+                    AlertRule.CreateRateOfChange("SP-TT-201", maxRateOfChangePerMinute: 12.0, minRateOfChangePerMinute: null, AlertSeverity.Critical, "CRITICAL: Series-Parallel CSTR rapid temperature rise excursion (dT/dt > 12.0 C/min)", windowSeconds: 30)
+                };
+
+                await context.AlertRules.AddRangeAsync(spRules, ct);
+                await context.SaveChangesAsync(ct);
+            }
+
             if (!await context.Batches.AnyAsync(ct))
             {
                 logger.LogInformation("Seeding sample initial industrial batch...");
