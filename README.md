@@ -2,73 +2,66 @@
 
 [![.NET Core CI](https://github.com/yancsalmeida/IndustrialTelemetry.Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/yancsalmeida/IndustrialTelemetry.Engine/actions/workflows/ci.yml)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![Tests](https://img.shields.io/badge/Tests-97%20Passed%20(100%25)-2ea44f.svg)](#automated-testing)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-An enterprise-grade **Industrial Telemetry, Batch Execution & Safety Alarm Management Web API** built with **C# (.NET 8)**, **PostgreSQL**, and strict **Clean Architecture**.
+An enterprise-grade **Industrial Telemetry, Batch Execution, Live SSE Observability & Safety Alarm Management Web API + Web SCADA Console** built with **C# (.NET 8)**, **PostgreSQL 16**, and strict **Clean Architecture**.
 
-Designed for high-throughput sensor telemetry ingestion in batch manufacturing environments (chemical reactors, semiconductor cleanrooms, pharmaceutical synthesis, and food & beverage), bridging chemical engineering process automation with cloud-native backend software engineering.
+Designed for high-throughput sensor telemetry ingestion in batch manufacturing environments, serving as the central historian and safety-alarm plane for both [**`ProcessTwin.Py`**](https://github.com/yancsalmeida/ProcessTwin.Py) (1 Hz twin bridge) and [**`ChemFlow.NET`**](https://github.com/yancsalmeida/ChemFlow.NET) (Distributed SIL Modbus controller).
 
 ---
 
-## Architecture (Clean Architecture & DDD)
-
-The solution is partitioned into modular layers adhering to strict **Dependency Inversion** and **Separation of Concerns**:
+## Architecture (Clean Architecture, SSE & Transactional Outbox)
 
 ```mermaid
 flowchart TD
-    subgraph Client["SCADA Transmitters / HTTP Clients"]
-        HTTP["HTTP Client / Sensor Hub"]
+    subgraph Client["SCADA Web Console & Field Producers"]
+        WebUI["SCADA Historian Console (wwwroot/index.html @ /)"]
+        Producers["ProcessTwin.Py (:8000) & ChemFlow.NET SIL (:5080)"]
+        SSEClients["Live SSE Listeners (/api/observability/stream)"]
     end
 
-    subgraph API["IndustrialTelemetry.Api (ASP.NET Core Web API)"]
-        Endpoints["Controllers (/api/batches, /api/telemetry, /api/alerts)"]
-        Middleware["Global Exception Handling Middleware (RFC 7807 ProblemDetails)"]
-        Swagger["OpenAPI / Swagger UI Docs"]
+    subgraph API["IndustrialTelemetry.Api (ASP.NET Core .NET 8)"]
+        Endpoints["Controllers (/api/batches, /api/telemetry, /api/alerts, /api/observability)"]
+        Middleware["Global Exception Middleware (RFC 7807) & Sliding Rate Limiter"]
+        Swagger["Swagger / OpenAPI (/swagger)"]
     end
 
     subgraph App["IndustrialTelemetry.Application (Use Cases & CQRS)"]
-        Services["Services (BatchService, TelemetryIngestionService, AlertService)"]
-        Validators["FluentValidation (Input & Sensor Validation)"]
-        Interfaces["Abstractions (IBatchRepository, ITelemetryRepository, ITelemetryChannel, IAlertRepository)"]
+        Services["Services (BatchService, TelemetryIngestionService, AlertService, ObservabilityQueryService)"]
+        Validators["FluentValidation"]
+        Interfaces["Interfaces (IOutboxRepository, IObservabilityStream, ITelemetryChannel, ...)"]
     end
 
-    subgraph Domain["IndustrialTelemetry.Domain (Core Business Logic - Zero Dependencies)"]
-        Entities["Entities (Batch, TelemetryMeasurement, AlertRule, ProcessAlert)"]
+    subgraph Domain["IndustrialTelemetry.Domain"]
+        Entities["Entities (Batch, TelemetryMeasurement, AlertRule, ProcessAlert, OutboxMessage)"]
         Enums["Enums (BatchStatus, MeasurementUnit, TelemetryQuality, AlertSeverity)"]
-        Exceptions["Domain Exceptions (InvalidBatchStateTransitionException)"]
     end
 
-    subgraph Infra["IndustrialTelemetry.Infrastructure (Data Persistence & High-Throughput Engine)"]
-        EFCore["Entity Framework Core (Npgsql)"]
-        Dapper["Dapper Micro-ORM (Server-Side SQL Aggregations)"]
+    subgraph Infra["IndustrialTelemetry.Infrastructure"]
+        EFCore["EF Core (Npgsql)"]
+        Dapper["Dapper Micro-ORM (Time-Series Buckets & Rate-of-Change Analytics)"]
         BinaryCopy["PostgreSQL Binary COPY (NpgsqlBinaryImporter)"]
-        Channel["Bounded In-Memory Channel (System.Threading.Channels)"]
-        Worker["Hosted Background Worker (TelemetryChannelConsumerService)"]
-        Repos["Repository Implementations"]
-        DbInit["DbInitializer (Automatic Migrations & Safety Seeding)"]
+        Workers["BackgroundServices (TelemetryChannelConsumer & OutboxProcessor + Webhook)"]
+        DbInit["DbInitializer (Idempotent Schema Upgrade + TT-101 / SP-TT-201 Alert Seeding)"]
     end
 
     subgraph DB["Database"]
-        PG[("PostgreSQL 16")]
+        PG[("PostgreSQL 16 (5M+ Indexed Rows)")]
     end
 
     subgraph Tests["IndustrialTelemetry.UnitTests (xUnit)"]
-        UnitTests["64 Unit & Relational Tests (Shouldly, NSubstitute, SQLite)"]
+        UnitTests["97 Automated Unit & Relational Integration Tests"]
     end
 
-    HTTP --> Endpoints
+    WebUI --> Endpoints
+    WebUI --> SSEClients
+    Producers --> Endpoints
     Endpoints --> Services
-    Services --> Validators
     Services --> Interfaces
-    Interfaces -.->|"Implemented by"| Repos
-    Interfaces -.->|"Implemented by"| Channel
-    Repos --> EFCore
-    Repos --> Dapper
-    Repos --> BinaryCopy
-    Worker --> Channel
-    Worker --> Repos
+    Workers --> Interfaces
     EFCore --> PG
     Dapper --> PG
     BinaryCopy --> PG
@@ -207,11 +200,12 @@ flowchart LR
 | **Runtime & Framework** | .NET 8 (C# 12), ASP.NET Core Web API |
 | **Architecture** | Clean Architecture, Domain-Driven Design (DDD) |
 | **Concurrency & Queues** | `System.Threading.Channels`, `BackgroundService` Hosted Consumer |
-| **Database & Persistence** | PostgreSQL 16, Entity Framework Core (Npgsql), Dapper (Server-Side SQL Aggregation), PostgreSQL Binary COPY (`NpgsqlBinaryImporter`) |
+| **Database & Persistence** | PostgreSQL 16, Entity Framework Core (Npgsql), Dapper (Server-Side SQL Aggregation & RoC), PostgreSQL Binary COPY (`NpgsqlBinaryImporter`) |
+| **Observability & Events** | Server-Sent Events (`/api/observability/stream`), Transactional Outbox + HTTP Webhook Dispatcher |
 | **Validation** | FluentValidation |
 | **Logging** | Serilog (Structured JSON Logging to Console & Diagnostics) |
-| **Documentation** | Swagger / OpenAPI UI served directly at root `/` |
-| **Testing** | xUnit, Shouldly, NSubstitute, SQLite Relational In-Memory (64 automated tests) |
+| **Documentation & UI** | Interactive SCADA Web Console (`/`), Swagger / OpenAPI UI (`/swagger`) |
+| **Testing** | xUnit, Shouldly, NSubstitute, SQLite Relational In-Memory (97 automated tests) |
 | **Containerization** | Multi-stage Dockerfile, Docker Compose |
 | **CI/CD** | GitHub Actions Automated Test & Build Pipeline |
 
@@ -243,10 +237,21 @@ flowchart LR
 ### Safety Alerts (`/api/alerts`)
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/alerts/rules` | List active process safety and alarm rules |
+| `GET` | `/api/alerts/rules` | List active process safety and alarm rules (`TT-101`, `PT-101`, `LT-101`, `SP-TT-201`) |
 | `POST` | `/api/alerts/rules` | Register a new threshold rule for a sensor tag |
 | `GET` | `/api/alerts/batch/{batchId}` | List triggered alerts for a specific batch |
 | `POST` | `/api/alerts/{id}/acknowledge` | Acknowledge an alarm with operator ID |
+
+### Observability, Historian Analytics & Live SSE (`/api/observability`)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/observability/overview` | System-wide historian KPIs (batches, total rows, channel depth, alert & outbox counters) |
+| `GET` | `/api/observability/sensors` | Dapper per-sensor aggregates (`Min`, `Avg`, `Max`, latest value & sample count) |
+| `GET` | `/api/observability/timeseries` | Time-bucketed Dapper trend aggregation + rate-of-change ($dV/dt$) series |
+| `GET` | `/api/observability/alerts` | Recent triggered process safety alerts across batches |
+| `GET` | `/api/observability/outbox` | Outbox message delivery state (`Pending`, `Dispatched`, `Failed`) |
+| `POST` | `/api/observability/outbox/requeue-failed` | Requeue failed outbox webhook dispatches |
+| `GET` | `/api/observability/stream` | Live Server-Sent Events (`text/event-stream`) broadcasting batches, alerts, and outbox dispatches |
 
 ---
 
@@ -260,7 +265,8 @@ Start the entire environment (PostgreSQL 16 + ASP.NET Core API) with a single co
 docker compose up -d --build
 ```
 
-- **Interactive Swagger UI:** Navigate to `http://localhost:5100`
+- **SCADA Historian Console:** Navigate to `http://localhost:5100`
+- **Interactive Swagger UI:** Navigate to `http://localhost:5100/swagger`
 - **Healthcheck:** `curl http://localhost:5100/health`
 
 ### 2. Run Locally via .NET CLI
@@ -287,11 +293,11 @@ dotnet run --project src/IndustrialTelemetry.Api
 Execute the comprehensive unit test suite:
 
 ```bash
-dotnet test
+dotnet test --configuration Release
 ```
 
 ```text
-Passed! - Failed: 0, Passed: 41, Skipped: 0, Total: 41, Duration: 736 ms
+Passed!  - Failed:     0, Passed:    97, Skipped:     0, Total:    97
 ```
 
 ---
