@@ -128,6 +128,7 @@ app.Use(async (context, next) =>
 });
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSerilogRequestLogging();
+app.UseMiddleware<IndustrialRbacMiddleware>();
 
 // OpenAPI version normalization: Swagger UI regex expects 3.0.[0-3], normalize 3.0.4 to 3.0.1
 app.Use(async (context, next) =>

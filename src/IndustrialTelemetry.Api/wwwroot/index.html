@@ -112,6 +112,11 @@
         <div class="sub">PostgreSQL Binary COPY Historian &middot; Rate-of-Change Anomaly Engine &middot; Transactional Outbox SSE/Webhook Dispatcher</div>
       </div>
       <div class="header-actions">
+        <select id="selRbacRole" title="Industrial RBAC Role Key">
+          <option value="engineer-admin-key" selected>Role: Engineer</option>
+          <option value="operator-ctrl-key">Role: Operator</option>
+          <option value="viewer-ro-key">Role: Viewer (RO)</option>
+        </select>
         <span id="sseStatusBadge" class="badge">&bull; Connecting SSE...</span>
         <button id="btnRefreshAll" class="btn btn-primary">&#8635; Refresh</button>
         <a href="/swagger" target="_blank" class="btn">Swagger API Docs &#8599;</a>
@@ -328,6 +333,14 @@
 
     let cachedSensors = [];
     let sseSource = null;
+
+    const origFetch = window.fetch.bind(window);
+    window.fetch = (input, init = {}) => {
+      const key = document.getElementById('selRbacRole')?.value;
+      const headers = new Headers(init.headers || {});
+      if (key && !headers.has('X-Api-Key')) headers.set('X-Api-Key', key);
+      return origFetch(input, { ...init, headers });
+    };
 
     const fmtUtc = (iso) => iso ? iso.replace('T', ' ').slice(0, 19) : '--';
 

@@ -321,6 +321,49 @@ public class ObservabilityAndLiveOutboxTests
         goldenCmp.MaxAbsoluteDeviation.ShouldBeGreaterThan(0.5);
     }
 
+    [Fact]
+    public async Task IndustrialRbacMiddleware_ShouldEnforceRoleHierarchyAndProblemDetails()
+    {
+        var config = Substitute.For<Microsoft.Extensions.Configuration.IConfiguration>();
+        var section = Substitute.For<Microsoft.Extensions.Configuration.IConfigurationSection>();
+        section.Value.Returns("true");
+        config.GetSection("IndustrialAuth:EnforceRbac").Returns(section);
+        config["IndustrialAuth:ViewerKey"].Returns("viewer-ro-key");
+        config["IndustrialAuth:OperatorKey"].Returns("operator-ctrl-key");
+        config["IndustrialAuth:EngineerKey"].Returns("engineer-admin-key");
+
+        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<IndustrialTelemetry.Api.Middleware.IndustrialRbacMiddleware>>();
+        var mw = new IndustrialTelemetry.Api.Middleware.IndustrialRbacMiddleware(
+            ctx => { ctx.Response.StatusCode = 200; return Task.CompletedTask; },
+            logger,
+            config);
+
+        // 1. Missing key on protected mutation -> 401
+        var ctxAnon = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        ctxAnon.Request.Method = "POST";
+        ctxAnon.Request.Path = "/api/telemetry/ingest/channel";
+        ctxAnon.Response.Body = new MemoryStream();
+        await mw.InvokeAsync(ctxAnon);
+        ctxAnon.Response.StatusCode.ShouldBe(401);
+
+        // 2. Operator calling Engineer-only outbox requeue -> 403
+        var ctxOp = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        ctxOp.Request.Method = "POST";
+        ctxOp.Request.Path = "/api/observability/outbox/requeue-failed";
+        ctxOp.Request.Headers["X-Api-Key"] = "operator-ctrl-key";
+        ctxOp.Response.Body = new MemoryStream();
+        await mw.InvokeAsync(ctxOp);
+        ctxOp.Response.StatusCode.ShouldBe(403);
+
+        // 3. Engineer calling Engineer-only outbox requeue -> 200
+        var ctxEng = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        ctxEng.Request.Method = "POST";
+        ctxEng.Request.Path = "/api/observability/outbox/requeue-failed";
+        ctxEng.Request.Headers["X-Api-Key"] = "engineer-admin-key";
+        await mw.InvokeAsync(ctxEng);
+        ctxEng.Response.StatusCode.ShouldBe(200);
+    }
+
     private sealed class StubHttpHandler(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> handler) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
