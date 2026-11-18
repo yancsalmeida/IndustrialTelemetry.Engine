@@ -188,6 +188,48 @@ public class ObservabilityAndLiveOutboxTests
         afterRequeue.DeadLetterCount.ShouldBe(0);
     }
 
+    [Fact]
+    public void HistorianTelemetry_ShouldExposeChannelAndOutboxMetricsViaMeterListener()
+    {
+        var channel = Substitute.For<ITelemetryChannel>();
+        channel.GetStatus().Returns(new ChannelStatusDto(
+            CurrentCount: 12,
+            Capacity: 50000,
+            TotalIngested: 400,
+            TotalDrained: 388,
+            TotalDropped: 0,
+            IsWriterCompleted: false));
+
+        var stream = new ObservabilityStream();
+        var dispatchMetrics = Substitute.For<IOutboxDispatchMetrics>();
+        dispatchMetrics.TotalDispatchedCount.Returns(9);
+
+        using var telemetry = new IndustrialTelemetry.Api.Observability.HistorianTelemetry(
+            channel, stream, dispatchMetrics);
+
+        var recorded = new Dictionary<string, double>();
+        using var listener = new System.Diagnostics.Metrics.MeterListener
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == IndustrialTelemetry.Api.Observability.HistorianTelemetry.ServiceName)
+                    meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<int>((inst, val, _, _) => recorded[inst.Name] = val);
+        listener.SetMeasurementEventCallback<long>((inst, val, _, _) => recorded[inst.Name] = val);
+        listener.Start();
+        listener.RecordObservableInstruments();
+
+        recorded["historian_channel_depth"].ShouldBe(12);
+        recorded["historian_channel_capacity"].ShouldBe(50000);
+        recorded["historian_channel_ingested_total"].ShouldBe(400);
+        recorded["historian_channel_drained_total"].ShouldBe(388);
+        recorded["historian_channel_dropped_total"].ShouldBe(0);
+        recorded["historian_outbox_dispatched_total"].ShouldBe(9);
+        recorded["historian_sse_subscribers_active"].ShouldBe(0);
+    }
+
     private sealed class StubHttpHandler(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> handler) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

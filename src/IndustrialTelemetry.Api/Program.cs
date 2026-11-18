@@ -1,12 +1,17 @@
+using System.Diagnostics;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using IndustrialTelemetry.Api.Filters;
 using IndustrialTelemetry.Api.Middleware;
+using IndustrialTelemetry.Api.Observability;
 using IndustrialTelemetry.Application;
 using IndustrialTelemetry.Infrastructure;
 using IndustrialTelemetry.Infrastructure.Persistence;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi.Models;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,6 +28,34 @@ builder.Host.UseSerilog();
 // 2. Add Clean Architecture Layers
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// 2b. OpenTelemetry Tracing & Prometheus Metrics
+builder.Services.AddSingleton<HistorianTelemetry>();
+var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(
+        serviceName: HistorianTelemetry.ServiceName,
+        serviceVersion: "1.0.0"))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource(HistorianTelemetry.ServiceName)
+            .AddAspNetCoreInstrumentation(opt => opt.RecordException = true)
+            .AddHttpClientInstrumentation();
+
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+        {
+            tracing.AddOtlpExporter(opt => opt.Endpoint = new Uri(otlpEndpoint));
+        }
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddMeter(HistorianTelemetry.ServiceName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddPrometheusExporter();
+    });
 
 // 3. Add Controllers & JSON Serializer options
 builder.Services.AddControllers()
@@ -68,6 +101,9 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Activate custom ObservableGauges / Counters for Prometheus scraping
+_ = app.Services.GetRequiredService<HistorianTelemetry>();
+
 // 6. Database schema creation & seeding on startup
 using (var scope = app.Services.CreateScope())
 {
@@ -77,6 +113,19 @@ using (var scope = app.Services.CreateScope())
 }
 
 // 7. HTTP Request Pipeline
+app.Use(async (context, next) =>
+{
+    if (Activity.Current is { } activity)
+    {
+        context.Response.OnStarting(() =>
+        {
+            context.Response.Headers["X-Trace-Id"] = activity.TraceId.ToString();
+            return Task.CompletedTask;
+        });
+    }
+
+    await next();
+});
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSerilogRequestLogging();
 
@@ -122,6 +171,7 @@ app.UseSwaggerUI(c =>
 
 app.UseRateLimiter();
 app.MapHealthChecks("/health");
+app.MapPrometheusScrapingEndpoint("/metrics");
 app.MapControllers();
 
 app.Run();
