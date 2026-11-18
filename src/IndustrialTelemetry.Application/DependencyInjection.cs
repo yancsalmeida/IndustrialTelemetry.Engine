@@ -15,6 +15,7 @@ public static class DependencyInjection
         services.AddScoped<BatchService>();
         services.AddScoped<TelemetryIngestionService>();
         services.AddScoped<AlertService>();
+        services.AddScoped<SpcAnalyticsService>();
 
         return services;
     }

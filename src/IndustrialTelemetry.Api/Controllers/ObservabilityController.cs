@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using IndustrialTelemetry.Application.DTOs;
 using IndustrialTelemetry.Application.Interfaces;
+using IndustrialTelemetry.Application.Services;
 using IndustrialTelemetry.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -25,6 +26,7 @@ public class ObservabilityController : ControllerBase
     private readonly ITelemetryChannel _channel;
     private readonly IObservabilityStream _stream;
     private readonly IOutboxDispatchMetrics? _dispatchMetrics;
+    private readonly SpcAnalyticsService? _spcAnalytics;
     private readonly int _maxRetries;
 
     public ObservabilityController(
@@ -35,7 +37,8 @@ public class ObservabilityController : ControllerBase
         ITelemetryChannel channel,
         IObservabilityStream stream,
         IOutboxDispatchMetrics? dispatchMetrics = null,
-        IOptions<OutboxOptions>? outboxOptions = null)
+        IOptions<OutboxOptions>? outboxOptions = null,
+        SpcAnalyticsService? spcAnalytics = null)
     {
         _telemetryRepo = telemetryRepo;
         _alertRepo = alertRepo;
@@ -44,6 +47,7 @@ public class ObservabilityController : ControllerBase
         _channel = channel;
         _stream = stream;
         _dispatchMetrics = dispatchMetrics;
+        _spcAnalytics = spcAnalytics;
         _maxRetries = outboxOptions?.Value?.MaxRetries > 0 ? outboxOptions.Value.MaxRetries : 5;
     }
 
@@ -137,6 +141,90 @@ public class ObservabilityController : ControllerBase
             r.Quality.ToString())).ToList();
 
         return Ok(dtos);
+    }
+
+    [HttpGet("analytics/downsample")]
+    [ProducesResponseType(typeof(IReadOnlyList<DownsampledBucketDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetDownsampledSeries(
+        [FromQuery] string sensorTag,
+        [FromQuery] int bucketSeconds = 5,
+        [FromQuery] Guid? batchId = null,
+        [FromQuery] DateTime? fromUtc = null,
+        [FromQuery] DateTime? toUtc = null,
+        [FromQuery] int maxBuckets = 240,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(sensorTag))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Missing Sensor Tag",
+                Detail = "Query parameter 'sensorTag' is required.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
+        var buckets = await _telemetryRepo.GetDownsampledSeriesAsync(
+            sensorTag, bucketSeconds, batchId, fromUtc, toUtc, maxBuckets, ct);
+
+        return Ok(buckets.Select(b => new DownsampledBucketDto(
+            b.BucketStartUtc,
+            b.AvgValue,
+            b.MinValue,
+            b.MaxValue,
+            b.SampleCount)).ToList());
+    }
+
+    [HttpGet("analytics/spc")]
+    [ProducesResponseType(typeof(SpcControlChartDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetSpcAnalysis(
+        [FromQuery] string sensorTag,
+        [FromQuery] Guid? batchId = null,
+        [FromQuery] double lambda = 0.2,
+        [FromQuery] double sigmaMultiplier = 3.0,
+        [FromQuery] int limit = 300,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(sensorTag))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Missing Sensor Tag",
+                Detail = "Query parameter 'sensorTag' is required.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
+        var svc = _spcAnalytics ?? new SpcAnalyticsService(_telemetryRepo);
+        var result = await svc.AnalyzeSpcAsync(sensorTag, batchId, lambda, sigmaMultiplier, limit, ct);
+        return Ok(result);
+    }
+
+    [HttpGet("analytics/golden-batch")]
+    [ProducesResponseType(typeof(GoldenBatchComparisonDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> CompareGoldenBatch(
+        [FromQuery] string sensorTag,
+        [FromQuery] Guid referenceBatchId,
+        [FromQuery] Guid candidateBatchId,
+        [FromQuery] int limit = 500,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(sensorTag) || referenceBatchId == Guid.Empty || candidateBatchId == Guid.Empty)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Invalid Golden Batch Query",
+                Detail = "Parameters 'sensorTag', 'referenceBatchId', and 'candidateBatchId' are required.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
+        var svc = _spcAnalytics ?? new SpcAnalyticsService(_telemetryRepo);
+        var result = await svc.CompareGoldenBatchAsync(sensorTag, referenceBatchId, candidateBatchId, limit, ct);
+        return Ok(result);
     }
 
     [HttpGet("alerts")]

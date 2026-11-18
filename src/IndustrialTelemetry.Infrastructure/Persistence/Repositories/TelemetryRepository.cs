@@ -319,4 +319,114 @@ public class TelemetryRepository : ITelemetryRepository
         latestDesc.Reverse();
         return latestDesc;
     }
+
+    public async Task<IReadOnlyList<DownsampledBucketRecord>> GetDownsampledSeriesAsync(
+        string sensorTag,
+        int bucketSeconds = 5,
+        Guid? batchId = null,
+        DateTime? fromUtc = null,
+        DateTime? toUtc = null,
+        int maxBuckets = 240,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sensorTag);
+        string tagUpper = sensorTag.Trim().ToUpperInvariant();
+        int clampedBucket = Math.Clamp(bucketSeconds, 1, 3600);
+        int clampedMaxBuckets = Math.Clamp(maxBuckets, 1, 1000);
+
+        if (_context.Database.IsRelational() && _context.Database.GetDbConnection() is Npgsql.NpgsqlConnection)
+        {
+            var connection = _context.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open)
+                await connection.OpenAsync(ct);
+
+            var whereClauses = new List<string> { "\"SensorTag\" = @SensorTag" };
+            var parameters = new DynamicParameters();
+            parameters.Add("SensorTag", tagUpper);
+            parameters.Add("BucketSeconds", clampedBucket);
+            parameters.Add("MaxBuckets", clampedMaxBuckets);
+
+            if (batchId.HasValue)
+            {
+                whereClauses.Add("\"BatchId\" = @BatchId");
+                parameters.Add("BatchId", batchId.Value);
+            }
+            if (fromUtc.HasValue)
+            {
+                whereClauses.Add("\"TimestampUtc\" >= @FromUtc");
+                parameters.Add("FromUtc", DateTime.SpecifyKind(fromUtc.Value, DateTimeKind.Utc));
+            }
+            if (toUtc.HasValue)
+            {
+                whereClauses.Add("\"TimestampUtc\" <= @ToUtc");
+                parameters.Add("ToUtc", DateTime.SpecifyKind(toUtc.Value, DateTimeKind.Utc));
+            }
+
+            string sql = $"""
+                SELECT
+                    (TO_TIMESTAMP(FLOOR(EXTRACT(EPOCH FROM "TimestampUtc") / @BucketSeconds) * @BucketSeconds) AT TIME ZONE 'UTC') AS "BucketStartUtc",
+                    AVG("Value") AS "AvgValue",
+                    MIN("Value") AS "MinValue",
+                    MAX("Value") AS "MaxValue",
+                    COUNT(*)::int AS "SampleCount"
+                FROM telemetry_measurements
+                WHERE {string.Join(" AND ", whereClauses)}
+                GROUP BY FLOOR(EXTRACT(EPOCH FROM "TimestampUtc") / @BucketSeconds)
+                ORDER BY "BucketStartUtc" DESC
+                LIMIT @MaxBuckets;
+                """;
+
+            var rows = (await connection.QueryAsync<DownsampledBucketRow>(
+                new CommandDefinition(sql, parameters, cancellationToken: ct))).ToList();
+
+            rows.Reverse();
+            return rows.Select(r => new DownsampledBucketRecord(
+                DateTime.SpecifyKind(r.BucketStartUtc, DateTimeKind.Utc),
+                Math.Round(r.AvgValue, 4),
+                Math.Round(r.MinValue, 4),
+                Math.Round(r.MaxValue, 4),
+                r.SampleCount)).ToList();
+        }
+
+        IQueryable<TelemetryMeasurement> query = _context.Telemetry
+            .AsNoTracking()
+            .Where(t => t.SensorTag == tagUpper);
+
+        if (batchId.HasValue)
+            query = query.Where(t => t.BatchId == batchId.Value);
+        if (fromUtc.HasValue)
+            query = query.Where(t => t.TimestampUtc >= fromUtc.Value);
+        if (toUtc.HasValue)
+            query = query.Where(t => t.TimestampUtc <= toUtc.Value);
+
+        var raw = await query.OrderBy(t => t.TimestampUtc).ToListAsync(ct);
+        var grouped = raw
+            .GroupBy(t =>
+            {
+                long epochSec = (long)Math.Floor((t.TimestampUtc - DateTime.UnixEpoch).TotalSeconds);
+                long bucketEpoch = (epochSec / clampedBucket) * clampedBucket;
+                return DateTime.UnixEpoch.AddSeconds(bucketEpoch);
+            })
+            .OrderByDescending(g => g.Key)
+            .Take(clampedMaxBuckets)
+            .OrderBy(g => g.Key)
+            .Select(g => new DownsampledBucketRecord(
+                DateTime.SpecifyKind(g.Key, DateTimeKind.Utc),
+                Math.Round(g.Average(x => x.Value), 4),
+                Math.Round(g.Min(x => x.Value), 4),
+                Math.Round(g.Max(x => x.Value), 4),
+                g.Count()))
+            .ToList();
+
+        return grouped;
+    }
+
+    private sealed class DownsampledBucketRow
+    {
+        public DateTime BucketStartUtc { get; init; }
+        public double AvgValue { get; init; }
+        public double MinValue { get; init; }
+        public double MaxValue { get; init; }
+        public int SampleCount { get; init; }
+    }
 }

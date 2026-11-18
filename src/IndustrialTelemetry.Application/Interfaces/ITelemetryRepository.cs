@@ -17,6 +17,14 @@ public record SensorSummaryRecord(
     double RateOfChangePerMin
 );
 
+public record DownsampledBucketRecord(
+    DateTime BucketStartUtc,
+    double AvgValue,
+    double MinValue,
+    double MaxValue,
+    int SampleCount
+);
+
 public interface ITelemetryRepository
 {
     Task IngestBatchAsync(IEnumerable<TelemetryMeasurement> measurements, CancellationToken ct = default);
@@ -32,5 +40,13 @@ public interface ITelemetryRepository
         DateTime? fromUtc = null,
         DateTime? toUtc = null,
         int limit = 300,
+        CancellationToken ct = default);
+    Task<IReadOnlyList<DownsampledBucketRecord>> GetDownsampledSeriesAsync(
+        string sensorTag,
+        int bucketSeconds = 5,
+        Guid? batchId = null,
+        DateTime? fromUtc = null,
+        DateTime? toUtc = null,
+        int maxBuckets = 240,
         CancellationToken ct = default);
 }

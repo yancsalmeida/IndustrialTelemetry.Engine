@@ -230,6 +230,97 @@ public class ObservabilityAndLiveOutboxTests
         recorded["historian_sse_subscribers_active"].ShouldBe(0);
     }
 
+    [Fact]
+    public void SpcAnalyticsService_ShouldComputeEwmaLimitsAndGoldenBatchMetrics()
+    {
+        var batchGold = Guid.NewGuid();
+        var batchCand = Guid.NewGuid();
+        var t0 = new DateTime(2026, 11, 18, 12, 0, 0, DateTimeKind.Utc);
+
+        var spcSamples = new List<TelemetryMeasurement>();
+        for (int i = 0; i < 20; i++)
+        {
+            double val = i < 17 ? 62.0 + (i % 2) * 0.2 : 95.0; // sudden step shift
+            spcSamples.Add(TelemetryMeasurement.Create(batchGold, t0.AddSeconds(i), "SP-TT-201", val, MeasurementUnit.Celsius, TelemetryQuality.Good));
+        }
+
+        var spc = SpcAnalyticsService.ComputeSpcChart("SP-TT-201", batchGold, spcSamples, lambda: 0.3, sigmaMultiplier: 2.0);
+        spc.SampleCount.ShouldBe(20);
+        spc.EwmaBreachCount.ShouldBeGreaterThan(0);
+        spc.ShewhartBreachCount.ShouldBeGreaterThan(0);
+        spc.MaxZScore.ShouldBeGreaterThan(2.0);
+        spc.ShewhartUcl.ShouldBeGreaterThan(spc.Mean);
+
+        var golden = new[]
+        {
+            TelemetryMeasurement.Create(batchGold, t0, "SP-TT-201", 60.0, MeasurementUnit.Celsius, TelemetryQuality.Good),
+            TelemetryMeasurement.Create(batchGold, t0.AddSeconds(10), "SP-TT-201", 70.0, MeasurementUnit.Celsius, TelemetryQuality.Good),
+            TelemetryMeasurement.Create(batchGold, t0.AddSeconds(20), "SP-TT-201", 80.0, MeasurementUnit.Celsius, TelemetryQuality.Good),
+        };
+        var candidate = new[]
+        {
+            TelemetryMeasurement.Create(batchCand, t0.AddHours(1), "SP-TT-201", 62.0, MeasurementUnit.Celsius, TelemetryQuality.Good),
+            TelemetryMeasurement.Create(batchCand, t0.AddHours(1).AddSeconds(20), "SP-TT-201", 82.0, MeasurementUnit.Celsius, TelemetryQuality.Good),
+        };
+
+        var cmp = SpcAnalyticsService.ComputeGoldenBatchComparison("SP-TT-201", batchGold, batchCand, golden, candidate);
+        cmp.AlignedPointCount.ShouldBe(3);
+        cmp.MeanBias.ShouldBe(2.0, 0.01);
+        cmp.Rmse.ShouldBe(2.0, 0.01);
+        cmp.Mae.ShouldBe(2.0, 0.01);
+    }
+
+    [Fact]
+    public async Task ObservabilityController_ShouldServeDownsamplingSpcAndGoldenBatchEndpoints()
+    {
+        await using var conn = new SqliteConnection("DataSource=:memory:");
+        await conn.OpenAsync();
+        var options = new DbContextOptionsBuilder<IndustrialDbContext>().UseSqlite(conn).Options;
+        await using var db = new IndustrialDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var b1 = Batch.Create("BATCH-GOLD", "CSTR-SP", "R-201", 100.0);
+        var b2 = Batch.Create("BATCH-CAND", "CSTR-SP", "R-201", 100.0);
+        await db.Batches.AddRangeAsync(b1, b2);
+
+        var baseTime = new DateTime(2026, 11, 18, 12, 0, 0, DateTimeKind.Utc);
+        await db.Telemetry.AddRangeAsync(
+            TelemetryMeasurement.Create(b1.Id, baseTime.AddSeconds(0), "SP-TT-201", 60.0, MeasurementUnit.Celsius, TelemetryQuality.Good),
+            TelemetryMeasurement.Create(b1.Id, baseTime.AddSeconds(2), "SP-TT-201", 64.0, MeasurementUnit.Celsius, TelemetryQuality.Good),
+            TelemetryMeasurement.Create(b1.Id, baseTime.AddSeconds(6), "SP-TT-201", 68.0, MeasurementUnit.Celsius, TelemetryQuality.Good),
+            TelemetryMeasurement.Create(b2.Id, baseTime.AddMinutes(5).AddSeconds(0), "SP-TT-201", 61.0, MeasurementUnit.Celsius, TelemetryQuality.Good),
+            TelemetryMeasurement.Create(b2.Id, baseTime.AddMinutes(5).AddSeconds(6), "SP-TT-201", 71.0, MeasurementUnit.Celsius, TelemetryQuality.Good)
+        );
+        await db.SaveChangesAsync();
+
+        var telemetryRepo = new TelemetryRepository(db);
+        var controller = new ObservabilityController(
+            telemetryRepo,
+            new AlertRepository(db),
+            new OutboxRepository(db),
+            new UnitOfWork(db),
+            Substitute.For<ITelemetryChannel>(),
+            new ObservabilityStream(),
+            spcAnalytics: new SpcAnalyticsService(telemetryRepo));
+
+        var buckets = ((OkObjectResult)await controller.GetDownsampledSeries("SP-TT-201", bucketSeconds: 5, batchId: b1.Id))
+            .Value.ShouldBeOfType<List<DownsampledBucketDto>>();
+        buckets.Count.ShouldBe(2);
+        buckets[0].SampleCount.ShouldBe(2);
+        buckets[0].AvgValue.ShouldBe(62.0);
+        buckets[0].MinValue.ShouldBe(60.0);
+        buckets[0].MaxValue.ShouldBe(64.0);
+
+        var spc = ((OkObjectResult)await controller.GetSpcAnalysis("SP-TT-201", batchId: b1.Id))
+            .Value.ShouldBeOfType<SpcControlChartDto>();
+        spc.SampleCount.ShouldBe(3);
+
+        var goldenCmp = ((OkObjectResult)await controller.CompareGoldenBatch("SP-TT-201", b1.Id, b2.Id))
+            .Value.ShouldBeOfType<GoldenBatchComparisonDto>();
+        goldenCmp.AlignedPointCount.ShouldBe(3);
+        goldenCmp.MaxAbsoluteDeviation.ShouldBeGreaterThan(0.5);
+    }
+
     private sealed class StubHttpHandler(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> handler) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

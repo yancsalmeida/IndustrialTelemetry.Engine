@@ -66,3 +66,56 @@ public record ObservabilityOverviewDto(
 public record RequeueDeadLettersResultDto(
     int RequeuedCount
 );
+
+public record DownsampledBucketDto(
+    DateTime BucketStartUtc,
+    double AvgValue,
+    double MinValue,
+    double MaxValue,
+    int SampleCount
+);
+
+public record SpcPointDto(
+    DateTime TimestampUtc,
+    double RawValue,
+    double EwmaValue,
+    double EwmaUpperLimit,
+    double EwmaLowerLimit,
+    bool ShewhartOutOfControl,
+    bool EwmaOutOfControl
+);
+
+public record SpcControlChartDto(
+    string SensorTag,
+    Guid? BatchId,
+    int SampleCount,
+    double Lambda,
+    double SigmaMultiplier,
+    double Mean,
+    double StdDev,
+    double ShewhartUcl,
+    double ShewhartLcl,
+    int ShewhartBreachCount,
+    int EwmaBreachCount,
+    double MaxZScore,
+    IReadOnlyList<SpcPointDto> Points
+);
+
+public record GoldenBatchPointDto(
+    double ElapsedSeconds,
+    double GoldenValue,
+    double CandidateValue,
+    double Residual
+);
+
+public record GoldenBatchComparisonDto(
+    string SensorTag,
+    Guid ReferenceBatchId,
+    Guid CandidateBatchId,
+    int AlignedPointCount,
+    double Rmse,
+    double Mae,
+    double MaxAbsoluteDeviation,
+    double MeanBias,
+    IReadOnlyList<GoldenBatchPointDto> AlignedPoints
+);

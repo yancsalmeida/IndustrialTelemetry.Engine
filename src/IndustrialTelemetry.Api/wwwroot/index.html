@@ -193,6 +193,35 @@
       </div>
     </section>
 
+    <!-- Statistical Process Control (SPC/EWMA), Downsampling & Golden Batch Comparator -->
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Industrial Analytics &mdash; SPC / EWMA Control Chart, Temporal Downsampling &amp; Golden Batch Comparator</div>
+        <div class="controls">
+          <select id="selSpcTag">
+            <option value="SP-TT-201" selected>SP-TT-201</option>
+            <option value="SIL-EkfNis">SIL-EkfNis</option>
+            <option value="SP-Cb">SP-Cb</option>
+          </select>
+          <select id="selSpcBucketSec">
+            <option value="0" selected>SPC: Raw Samples (&lambda;=0.2)</option>
+            <option value="5">Downsample: 5s Buckets</option>
+            <option value="15">Downsample: 15s Buckets</option>
+            <option value="60">Downsample: 60s Buckets</option>
+          </select>
+          <button id="btnRunSpc" class="btn btn-primary">Analyze SPC / Downsample</button>
+          <select id="selGoldenBatch"><option value="">Golden Batch...</option></select>
+          <select id="selCandidateBatch"><option value="">Candidate Batch...</option></select>
+          <button id="btnCompareGolden" class="btn btn-amber">Compare Batches</button>
+        </div>
+      </div>
+      <div class="strip">
+        <span id="spcSummaryStrip">SPC/EWMA: Click "Analyze" to compute Shewhart &amp; EWMA control limits...</span>
+        <span id="goldenSummaryStrip" style="color: var(--emerald);">Golden Batch: --</span>
+      </div>
+      <canvas id="spcCanvas" width="1280" height="210"></canvas>
+    </section>
+
     <!-- Bottom 2-Column Grid: Alerts & Transactional Outbox Audit -->
     <section class="two-col">
       <div class="panel">
@@ -285,7 +314,16 @@
       selOutboxFilter: document.getElementById('selOutboxFilter'),
       btnRequeueDead: document.getElementById('btnRequeueDead'),
       sseFeed: document.getElementById('sseFeed'),
-      outboxTableBody: document.getElementById('outboxTableBody')
+      outboxTableBody: document.getElementById('outboxTableBody'),
+      selSpcTag: document.getElementById('selSpcTag'),
+      selSpcBucketSec: document.getElementById('selSpcBucketSec'),
+      btnRunSpc: document.getElementById('btnRunSpc'),
+      selGoldenBatch: document.getElementById('selGoldenBatch'),
+      selCandidateBatch: document.getElementById('selCandidateBatch'),
+      btnCompareGolden: document.getElementById('btnCompareGolden'),
+      spcSummaryStrip: document.getElementById('spcSummaryStrip'),
+      goldenSummaryStrip: document.getElementById('goldenSummaryStrip'),
+      spcCanvas: document.getElementById('spcCanvas')
     };
 
     let cachedSensors = [];
@@ -596,8 +634,140 @@
       });
     }
 
+    async function loadBatchesForComparison() {
+      try {
+        const res = await fetch('/api/batches');
+        if (!res.ok) return;
+        const batches = await res.json();
+        if (!Array.isArray(batches) || batches.length === 0) return;
+
+        const opts = batches.map(b =>
+          `<option value="${b.id}">${b.batchCode} (${b.status})</option>`
+        ).join('');
+        els.selGoldenBatch.innerHTML = opts;
+        els.selCandidateBatch.innerHTML = opts;
+        if (batches.length > 1) els.selCandidateBatch.selectedIndex = 1;
+      } catch {}
+    }
+
+    function drawSpcOrDownsampleCanvas(seriesA, upperBand, lowerBand, labelA, labelBands) {
+      const canvas = els.spcCanvas;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      if (!seriesA || seriesA.length === 0) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '13px monospace';
+        ctx.fillText('No samples available for selected sensor tag.', 24, h / 2);
+        return;
+      }
+
+      const allVals = [...seriesA, ...(upperBand || []), ...(lowerBand || [])].filter(v => Number.isFinite(v));
+      let minV = Math.min(...allVals);
+      let maxV = Math.max(...allVals);
+      if (maxV - minV < 1e-6) { maxV += 1; minV -= 1; }
+      const pad = { l: 55, r: 20, t: 20, b: 25 };
+      const plotW = w - pad.l - pad.r;
+      const plotH = h - pad.t - pad.b;
+      const xOf = (i) => pad.l + (seriesA.length > 1 ? (i / (seriesA.length - 1)) * plotW : plotW / 2);
+      const yOf = (v) => pad.t + (1 - (v - minV) / (maxV - minV)) * plotH;
+
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      for (let g = 0; g <= 4; g++) {
+        const y = pad.t + (g / 4) * plotH;
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+        const val = maxV - (g / 4) * (maxV - minV);
+        ctx.fillStyle = '#64748b';
+        ctx.font = '11px monospace';
+        ctx.fillText(val.toFixed(1), 6, y + 4);
+      }
+
+      const drawLine = (vals, color, dash = []) => {
+        if (!vals || vals.length === 0) return;
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash(dash);
+        ctx.beginPath();
+        vals.forEach((v, i) => {
+          const x = xOf(i), y = yOf(v);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      drawLine(upperBand, '#fb7185', [5, 4]);
+      drawLine(lowerBand, '#fb7185', [5, 4]);
+      drawLine(seriesA, '#38bdf8');
+
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = '11px monospace';
+      ctx.fillText(`${labelA} | ${labelBands}`, pad.l + 8, pad.t + 14);
+    }
+
+    async function runSpcOrDownsample() {
+      const tag = els.selSpcTag?.value || 'SP-TT-201';
+      const bucketSec = parseInt(els.selSpcBucketSec?.value || '0', 10);
+      try {
+        if (bucketSec > 0) {
+          const res = await fetch(`/api/observability/analytics/downsample?sensorTag=${encodeURIComponent(tag)}&bucketSeconds=${bucketSec}&maxBuckets=180`);
+          if (!res.ok) return;
+          const buckets = await res.json();
+          els.spcSummaryStrip.textContent = `Downsample (${tag}, ${bucketSec}s): ${buckets.length} buckets | Avg/Min/Max envelope`;
+          drawSpcOrDownsampleCanvas(
+            buckets.map(b => b.avgValue),
+            buckets.map(b => b.maxValue),
+            buckets.map(b => b.minValue),
+            `${tag} Avg (${bucketSec}s)`,
+            'Min/Max Envelope'
+          );
+        } else {
+          const res = await fetch(`/api/observability/analytics/spc?sensorTag=${encodeURIComponent(tag)}&lambda=0.2&sigmaMultiplier=3.0&limit=300`);
+          if (!res.ok) return;
+          const spc = await res.json();
+          els.spcSummaryStrip.textContent = `SPC/EWMA (${spc.sensorTag}, n=${spc.sampleCount}): μ=${spc.mean.toFixed(2)}, σ=${spc.stdDev.toFixed(2)} | UCL=${spc.shewhartUcl.toFixed(2)} / LCL=${spc.shewhartLcl.toFixed(2)} | EWMA Breaches=${spc.ewmaBreachCount} | MaxZ=${spc.maxZScore.toFixed(2)}`;
+          drawSpcOrDownsampleCanvas(
+            spc.points.map(p => p.ewmaValue),
+            spc.points.map(p => p.ewmaUpperLimit),
+            spc.points.map(p => p.ewmaLowerLimit),
+            `${tag} EWMA (λ=${spc.lambda})`,
+            `EWMA ±${spc.sigmaMultiplier}σ Control Limits`
+          );
+        }
+      } catch (err) {
+        console.error('SPC/Downsample failed:', err);
+      }
+    }
+
+    async function runGoldenBatchComparison() {
+      const tag = els.selSpcTag?.value || 'SP-TT-201';
+      const refId = els.selGoldenBatch?.value;
+      const candId = els.selCandidateBatch?.value;
+      if (!refId || !candId) return;
+
+      try {
+        const res = await fetch(`/api/observability/analytics/golden-batch?sensorTag=${encodeURIComponent(tag)}&referenceBatchId=${refId}&candidateBatchId=${candId}`);
+        if (!res.ok) return;
+        const cmp = await res.json();
+        els.goldenSummaryStrip.textContent = `Golden vs Candidate (${cmp.sensorTag}, n=${cmp.alignedPointCount}): RMSE=${cmp.rmse.toFixed(3)} | MAE=${cmp.mae.toFixed(3)} | MaxDev=${cmp.maxAbsoluteDeviation.toFixed(3)} | Bias=${cmp.meanBias.toFixed(3)}`;
+        drawSpcOrDownsampleCanvas(
+          cmp.alignedPoints.map(p => p.candidateValue),
+          cmp.alignedPoints.map(p => p.goldenValue),
+          [],
+          'Candidate Trajectory',
+          'Dashed: Golden Reference'
+        );
+      } catch (err) {
+        console.error('Golden batch comparison failed:', err);
+      }
+    }
+
     async function refreshAll() {
-      await Promise.all([loadOverviewAndSensors(), loadAlerts(), loadOutbox()]);
+      await Promise.all([loadOverviewAndSensors(), loadAlerts(), loadOutbox(), loadBatchesForComparison()]);
     }
 
     els.btnRefreshAll.addEventListener('click', refreshAll);
@@ -606,13 +776,16 @@
     els.selPointLimit.addEventListener('change', loadTimeSeriesChart);
     els.selAlertFilter.addEventListener('change', loadAlerts);
     els.selOutboxFilter.addEventListener('change', loadOutbox);
+    if (els.btnRunSpc) els.btnRunSpc.addEventListener('click', runSpcOrDownsample);
+    if (els.selSpcBucketSec) els.selSpcBucketSec.addEventListener('change', runSpcOrDownsample);
+    if (els.btnCompareGolden) els.btnCompareGolden.addEventListener('click', runGoldenBatchComparison);
     els.btnRequeueDead.addEventListener('click', async () => {
       await fetch('/api/observability/outbox/requeue-failed', { method: 'POST' });
       await Promise.all([loadOutbox(), loadOverviewAndSensors()]);
     });
 
     connectSse();
-    refreshAll();
+    refreshAll().then(() => runSpcOrDownsample());
     setInterval(loadOverviewAndSensors, 4000);
   </script>
 </body>
